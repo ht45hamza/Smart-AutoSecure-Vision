@@ -15,7 +15,7 @@ A real-time, privacy-first AI surveillance dashboard built with Python Flask, Op
   - Add any connected camera (prevents duplicates)  
   - Click small camera → instantly becomes main view  
 
-- **Live Person Tracking (WhatsApp-style Log)**  
+- **Live Person Tracking (Whatsapp-style Log)**  
   - Shows name, photo, time, and direction (In/Out)  
   - Color-coded: Green (Known), Red (Unknown/Suspect)  
 
