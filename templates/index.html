@@ -97,6 +97,54 @@
         opacity: 0.9;
       }
     }
+
+    @keyframes pulse {
+      0% {
+        opacity: 0.9;
+      }
+
+      50% {
+        opacity: 1;
+      }
+
+      100% {
+        opacity: 0.9;
+      }
+    }
+
+    /* ROI Modal Styles */
+    #roiContainer {
+      position: relative;
+      display: inline-block;
+      width: 100%;
+      background: #000;
+      min-height: 300px;
+    }
+
+    #roiFeed {
+      width: 100%;
+      display: block;
+    }
+
+    #roiCanvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      cursor: crosshair;
+    }
+
+    .shape-btn {
+      width: 40px;
+      height: 40px;
+      margin-right: 5px;
+    }
+
+    .shape-btn.active {
+      border: 2px solid #3498db;
+      background: #34495e;
+    }
   </style>
 </head>
 
@@ -197,6 +245,44 @@
     </div>
   </div>
 
+  <!-- ROI Setup Modal -->
+  <div class="modal fade" id="roiModal" tabindex="-1" data-bs-backdrop="static">
+    <div class="modal-dialog modal-xl">
+      <div class="modal-content bg-dark text-light">
+        <div class="modal-header border-0">
+          <h5 class="modal-title"><i class="fas fa-crop-alt"></i> Setup Region of Interest (ROI)</h5>
+        </div>
+        <div class="modal-body p-0">
+          <div class="p-2 border-bottom border-secondary d-flex justify-content-center">
+            <button class="btn btn-dark shape-btn" id="btnRect" onclick="setTool('rect')" title="Rectangle"><i
+                class="far fa-square"></i></button>
+            <button class="btn btn-dark shape-btn" id="btnCircle" onclick="setTool('circle')" title="Circle"><i
+                class="far fa-circle"></i></button>
+            <button class="btn btn-dark shape-btn" id="btnPoly" onclick="setTool('poly')" title="Polygon"><i
+                class="fas fa-draw-polygon"></i></button>
+            <button class="btn btn-dark shape-btn" id="btnFree" onclick="setTool('freehand')" title="Freehand/Lasso"><i
+                class="fas fa-pen"></i></button>
+            <div class="vr mx-2 bg-secondary"></div>
+            <button class="btn btn-outline-danger btn-sm" onclick="clearRoi()">Clear</button>
+          </div>
+
+          <div id="roiContainer">
+            <img id="roiFeed" src="">
+            <canvas id="roiCanvas"></canvas>
+            <div
+              class="position-absolute bottom-0 start-0 w-100 p-2 text-center bg-black bg-opacity-50 pointer-events-none">
+              <span id="roiHelp" class="small text-info">Select a tool to draw ROI</span>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer border-0">
+          <button type="button" class="btn btn-secondary" onclick="skipRoi()">Skip / Full Screen</button>
+          <button type="button" class="btn btn-primary" onclick="saveRoi()">Save ROI</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="footer text-center py-3">
     Copyright © HalalSoft Solutions 2025 — Smart AutoSecure Vision™ | Privacy-First AI Surveillance
   </div>
@@ -247,15 +333,265 @@
       if (data.id && data.id !== data.main) {
         const wrapper = document.createElement('div');
         wrapper.className = 'small-cam position-relative';
-        wrapper.onclick = () => setMainCamera(data.id);
+        // Note: onclick behavior might need adjustment if we click the button?
+        // Using event delegation or separate hit areas.
+
         wrapper.innerHTML = `
-          <img src="/video_feed/${data.id}?t=${Date.now()}" class="w-100 h-100" style="object-fit: cover; border-radius: 14px;">
+          <img src="/video_feed/${data.id}?t=${Date.now()}" class="w-100 h-100" style="object-fit: cover; border-radius: 14px;" onclick="setMainCamera(${data.id})">
           <div class="live-badge position-absolute top-0 start-0 m-2" style="font-size:0.7rem;padding:4px 10px;">LIVE</div>
+          <button class="btn btn-sm btn-dark position-absolute top-0 end-0 m-2" style="opacity:0.8;" onclick="event.stopPropagation(); setupRoi(${data.id})" title="Edit ROI">
+                <i class="fas fa-crop-alt"></i>
+          </button>
         `;
         document.getElementById('smallGrid').appendChild(wrapper);
       }
 
+      // Add "Edit ROI" button to MAIN camera too
+      // We can insert it dynamically or just rely on the modal flow for new ones.
+      // But for existing main camera, we need a button.
+      // Add a small overlay button on the main feed?
+      let mainEditBtn = document.getElementById('mainRoiBtn');
+      if (mainCameraId) {
+        if (!mainEditBtn) {
+          const btn = document.createElement('button');
+          btn.id = 'mainRoiBtn';
+          btn.className = 'btn btn-sm btn-dark position-absolute top-0 end-0 m-4';
+          btn.innerHTML = '<i class="fas fa-crop-alt"></i> Edit ROI';
+          btn.onclick = () => setupRoi(mainCameraId);
+          document.querySelector('.main-video').appendChild(btn);
+        } else {
+          btn.onclick = () => setupRoi(mainCameraId);
+        }
+      }
+
       bootstrap.Modal.getInstance(document.getElementById('cameraModal')).hide();
+
+      // Open ROI Setup
+      setupRoi(data.id);
+    }
+
+    // ROI Logic
+    let currentRoiCamId = null;
+    let currentTool = 'rect';
+    let isDrawing = false;
+    let roiPoints = []; // [[x,y], ...] or [x,y,w,h] etc
+    let roiShape = null; // {type, points} to save
+
+    const canvas = document.getElementById('roiCanvas');
+    const ctx = canvas.getContext('2d');
+    const img = document.getElementById('roiFeed');
+
+    function setupRoi(id) {
+      currentRoiCamId = id;
+      const modal = new bootstrap.Modal(document.getElementById('roiModal'));
+      img.src = `/video_feed/${id}?t=${Date.now()}`;
+
+      // Wait for image to load to set canvas size
+      img.onload = () => {
+        canvas.width = img.clientWidth;
+        canvas.height = img.clientHeight;
+        clearRoi();
+      }
+
+      // Resize observer
+      new ResizeObserver(() => {
+        canvas.width = img.clientWidth;
+        canvas.height = img.clientHeight;
+      }).observe(img);
+
+      modal.show();
+    }
+
+    function setTool(tool) {
+      currentTool = tool;
+      document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+      // Map button IDs
+      const map = { 'rect': 'btnRect', 'circle': 'btnCircle', 'poly': 'btnPoly', 'freehand': 'btnFree' };
+      document.getElementById(map[tool]).classList.add('active');
+
+      let help = "";
+      if (tool === 'rect') help = "Click and drag to draw rectangle";
+      if (tool === 'circle') help = "Click center and drag to define radius";
+      if (tool === 'poly') help = "Click to add points. Double-click to finish.";
+      if (tool === 'freehand') help = "Click and drag to draw freehand shape";
+      document.getElementById('roiHelp').innerText = help;
+
+      // Reset if switching tools mid-drawing? No, keep existing.
+    }
+
+    function clearRoi() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      roiPoints = [];
+      roiShape = null;
+      isDrawing = false;
+    }
+
+    // Canvas Events
+    canvas.addEventListener('mousedown', e => {
+      const rect = canvas.getBoundingClientRect();
+      // Clamp
+      let x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
+      let y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+
+      if (currentTool === 'poly') {
+        // Snap to close
+        if (roiPoints.length > 2) {
+          const sx = roiPoints[0][0];
+          const sy = roiPoints[0][1];
+          const dist = Math.sqrt((x - sx) ** 2 + (y - sy) ** 2);
+          if (dist < 15) { // 15px snap radius
+            finalizeShape();
+            isDrawing = false;
+            return;
+          }
+        }
+        roiPoints.push([x, y]);
+        draw(x, y);
+        return;
+      }
+
+      isDrawing = true;
+      if (currentTool === 'rect') {
+        roiPoints = [x, y, 0, 0]; // x, y, w, h
+      } else if (currentTool === 'circle') {
+        roiPoints = [x, y, 0]; // cx, cy, r
+      } else if (currentTool === 'freehand') {
+        roiPoints = [[x, y]];
+      }
+    });
+
+    canvas.addEventListener('mousemove', e => {
+      const rect = canvas.getBoundingClientRect();
+      let x = Math.max(0, Math.min(canvas.width, e.clientX - rect.left));
+      let y = Math.max(0, Math.min(canvas.height, e.clientY - rect.top));
+
+      if (currentTool === 'poly') {
+        // Visualize line to cursor
+        draw(x, y);
+        return;
+      }
+
+      if (!isDrawing) return;
+
+      if (currentTool === 'rect') {
+        roiPoints[2] = x - roiPoints[0];
+        roiPoints[3] = y - roiPoints[1];
+      } else if (currentTool === 'circle') {
+        const dx = x - roiPoints[0];
+        const dy = y - roiPoints[1];
+        roiPoints[2] = Math.sqrt(dx * dx + dy * dy);
+      } else if (currentTool === 'freehand') {
+        roiPoints.push([x, y]);
+      }
+      draw();
+    });
+
+    canvas.addEventListener('mouseup', e => {
+      if (currentTool === 'poly') return; // Handled by dblclick
+      if (!isDrawing) return;
+      isDrawing = false;
+      finalizeShape();
+    });
+
+    canvas.addEventListener('dblclick', e => {
+      if (currentTool === 'poly') {
+        finalizeShape();
+        isDrawing = false;
+      }
+    });
+
+    function draw(cursorX = null, cursorY = null) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = '#2ecc71';
+      ctx.lineWidth = 3;
+      ctx.fillStyle = 'rgba(46, 204, 113, 0.2)';
+
+      ctx.beginPath();
+
+      if (currentTool === 'rect' && roiPoints.length > 0) {
+        // Normalize negatives
+        const rx = roiPoints[2] < 0 ? roiPoints[0] + roiPoints[2] : roiPoints[0];
+        const ry = roiPoints[3] < 0 ? roiPoints[1] + roiPoints[3] : roiPoints[1];
+        const rw = Math.abs(roiPoints[2]);
+        const rh = Math.abs(roiPoints[3]);
+        ctx.rect(rx, ry, rw, rh);
+        ctx.fill();
+        ctx.stroke();
+      }
+      else if (currentTool === 'circle' && roiPoints.length > 0) {
+        ctx.arc(roiPoints[0], roiPoints[1], roiPoints[2], 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.stroke();
+      }
+      else if ((currentTool === 'poly' || currentTool === 'freehand') && roiPoints.length > 0) {
+        ctx.moveTo(roiPoints[0][0], roiPoints[0][1]);
+        for (let i = 1; i < roiPoints.length; i++) {
+          ctx.lineTo(roiPoints[i][0], roiPoints[i][1]);
+        }
+        if (cursorX !== null && currentTool === 'poly') {
+          ctx.lineTo(cursorX, cursorY);
+        }
+        if (!isDrawing && currentTool !== 'poly') ctx.closePath(); // Close if finished
+        if (currentTool === 'poly' && roiPoints.length > 2 && cursorX === null) ctx.closePath();
+
+        ctx.stroke();
+        if (!isDrawing) ctx.fill();
+      }
+    }
+
+    function finalizeShape() {
+      // Validation
+      roiShape = { type: currentTool, points: roiPoints };
+      draw();
+    }
+
+    async function saveRoi() {
+      if (!roiShape || roiPoints.length === 0) {
+        alert("Please draw an area first or click Skip.");
+        return;
+      }
+
+      // Normalize coordinates
+      const w = canvas.width;
+      const h = canvas.height;
+      let normPoints = [];
+
+      if (roiShape.type === 'rect') {
+        // x, y, w, h
+        normPoints = [roiShape.points[0] / w, roiShape.points[1] / h, roiShape.points[2] / w, roiShape.points[3] / h];
+      } else if (roiShape.type === 'circle') {
+        normPoints = [roiShape.points[0] / w, roiShape.points[1] / h, roiShape.points[2] / w]; // Radius relative to Width
+      } else {
+        // Poly/Freehand
+        normPoints = roiShape.points.map(p => [p[0] / w, p[1] / h]);
+      }
+
+      const payload = {
+        id: currentRoiCamId,
+        roi: { type: roiShape.type, points: normPoints }
+      };
+
+      await fetch('/api/set_roi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      // Close
+      const el = document.getElementById('roiModal');
+      const modal = bootstrap.Modal.getInstance(el);
+      modal.hide();
+
+      // Refresh feeds
+      if (currentRoiCamId === mainCameraId) {
+        document.getElementById('mainFeed').src = `/video_feed/${currentRoiCamId}?t=${Date.now()}`;
+      }
+    }
+
+    function skipRoi() {
+      const el = document.getElementById('roiModal');
+      const modal = bootstrap.Modal.getInstance(el);
+      modal.hide();
     }
 
     // Set main camera

@@ -24,12 +24,17 @@ class EmergencyManager:
         return True
 
     def delete_contact(self, contact_id):
-        """Deletes a contact by ID (stored in 'created_at' or fake ID for JsonDB)"""
-        # JsonDB uses internal ID, but for simplicity we might match by name/phone in this demo
-        # or rely on the UI passing the right identifier.
-        # For robustness with JsonDB, we'll try to find by some unique prop given we don't present IDs in UI yet.
-        # Let's assume ID is passed as string.
-        pass # To be implemented with UI integration
+        """Deletes a contact by ID."""
+        try:
+            res = self.contacts.delete_one({"_id": ObjectId(contact_id)})
+            return res.deleted_count > 0
+        except:
+             # Try legacy/string match if generic ID (JsonDB support)
+             # But JsonDB uses string IDs anyway. 
+             # Let's support both ObjectId and direct string match if needed.
+             if hasattr(self.db, 'is_json_db'): # Our JsonDB mock
+                  return self.contacts.delete_one({"_id": contact_id})
+             return False
 
     def trigger_emergency(self, threat_type="Weapon"):
         """

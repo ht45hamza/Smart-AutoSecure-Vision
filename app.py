@@ -12,9 +12,12 @@ from bson.objectid import ObjectId
 from json_db import JsonDB
 from config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
 from camera_manager import CameraManager, CameraStream
+from auth_manager import AuthManager
+from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 import time
 
 app = Flask(__name__)
+app.secret_key = "super_secret_key"
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
@@ -42,6 +45,17 @@ except (ConfigurationError, ConnectionFailure, ServerSelectionTimeoutError) as e
 
 # Initialize Camera Manager
 camera_manager = CameraManager(app.config, db)
+
+# Auth Setup
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+
+auth_manager = AuthManager(db, app.config)
+
+@login_manager.user_loader
+def load_user(user_id):
+    return auth_manager.get_user_by_id(user_id)
 
 # Camera System (unchanged)
 cameras = {}
@@ -72,32 +86,77 @@ def generate_frames(device_id):
         time.sleep(0.03) # Limit sending rate to ~30 FPS
 
 @app.route('/')
+@login_required
 def index():
     return render_template('index.html')
 
-@app.route('/api/stats')
-def get_stats():
-    return jsonify(camera_manager.get_stats())
+# --- AUTH ROUTES ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        email = request.form.get('email')
+        password = request.form.get('password')
+        user, msg = auth_manager.login_user(email, password)
+        if user:
+            login_user(user)
+            return redirect(url_for('index'))
+        return render_template('login.html', error=msg)
+    return render_template('login.html')
 
-@app.route('/api/reload_faces')
-def reload_faces():
-    camera_manager.load_known_faces()
-    return jsonify({"success": True})
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    if request.method == 'POST':
+        name = request.form.get('name')
+        email = request.form.get('email')
+        password = request.form.get('password')
+        success, msg = auth_manager.register_user(name, email, password)
+        if success:
+            return redirect(url_for('verify_email', email=email))
+        return render_template('register.html', error=msg)
+    return render_template('register.html')
 
-@app.route('/api/emergency_status')
-def emergency_status():
-    return jsonify(camera_manager.emergency.get_status())
+@app.route('/verify_email', methods=['GET', 'POST'])
+def verify_email():
+    email = request.args.get('email') or request.form.get('email')
+    if request.method == 'POST':
+        otp = request.form.get('otp')
+        success, msg = auth_manager.verify_email(email, otp)
+        if success:
+            return render_template('login.html', msg="Verification Successful! Please login.")
+        return render_template('verify_email.html', email=email, error=msg)
+    return render_template('verify_email.html', email=email)
 
-# --- Emergency Contact Routes ---
-@app.route('/api/simulate_threat', methods=['POST'])
-def simulate_threat():
-    threat_type = request.json.get('type', 'Simulated Weapon')
-    camera_manager.emergency.trigger_emergency(threat_type)
-    return jsonify({"success": True, "message": f"Simulated {threat_type}"})
+@app.route('/forgot_password', methods=['GET', 'POST'])
+def forgot_password():
+    if request.method == 'POST':
+        step = request.form.get('step')
+        email = request.form.get('email')
+        
+        if step == '1': # Request OTP
+            success, msg = auth_manager.forgot_password_request(email)
+            if success:
+                return render_template('forgot_password.html', step=2, email=email)
+            return render_template('forgot_password.html', step=1, error=msg)
+            
+        elif step == '2': # Reset
+            otp = request.form.get('otp')
+            password = request.form.get('password')
+            success, msg = auth_manager.reset_password(email, otp, password)
+            if success:
+                return render_template('login.html', msg="Password changed successfully.")
+            return render_template('forgot_password.html', step=2, email=email, error=msg)
+            
+    return render_template('forgot_password.html', step=1)
 
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    return redirect(url_for('login'))
 
-# --- Camera Routes (unchanged) ---
+# --- CAMERA ROUTES ---
 @app.route('/video_feed/<int:device_id>')
+@login_required
 def video_feed(device_id):
     return Response(generate_frames(device_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -136,7 +195,14 @@ def add_camera():
 
         # Init new stream
         try:
-            stream = CameraStream(device_id, data['label'], camera_manager.process_frame)
+            # Pass device_id to process_frame for rate-limiting
+            # IMPORTANT: stream is defined here, but lambda binds `stream` by reference if we aren't careful?
+            # Actually, `stream` variable inside lambda will point to the local variable.
+            # But we must be careful.
+            # Better to define a helper function or assume `stream` is available.
+            # Creating stream first.
+            stream = CameraStream(device_id, data['label'])
+            stream.process_callback = lambda f: camera_manager.process_frame(f, device_id, stream.roi_mask)
             stream.start()
             
             # Wait a bit to check if it started
@@ -165,18 +231,34 @@ def set_main(device_id):
             cameras[device_id]['main'] = True
     return jsonify({'success': True})
 
+@app.route('/api/set_roi', methods=['POST'])
+def set_roi():
+    data = request.json
+    device_id = data.get('id')
+    roi_data = data.get('roi') # {'type':..., 'points':...}
+    
+    with lock:
+        if camera_manager.set_camera_roi(device_id, roi_data, cameras):
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'message': 'Camera not found'})
+
+# --- ADMIN PANEL ROUTES ---
 # --- ADMIN PANEL ROUTES ---
 @app.route('/admin')
+@login_required
 def admin_panel():
     all_persons = list(persons.find().sort("serial_no", -1))
     return render_template('admin.html', persons=all_persons)
 
 @app.route('/admin/contacts')
+@login_required
 def contacts_panel():
     contacts = camera_manager.emergency.get_contacts()
     return render_template('contacts.html', contacts=contacts)
 
 @app.route('/admin/add_contact', methods=['POST'])
+@login_required
 def add_contact():
     name = request.form['name']
     phone = request.form['phone']
@@ -184,7 +266,14 @@ def add_contact():
     camera_manager.emergency.add_contact(name, phone, relation)
     return redirect(url_for('contacts_panel'))
 
+@app.route('/admin/delete_contact/<contact_id>')
+@login_required
+def delete_contact(contact_id):
+    camera_manager.emergency.delete_contact(contact_id)
+    return redirect(url_for('contacts_panel'))
+
 @app.route('/admin/add', methods=['POST'])
+@login_required
 def add_person():
     name = request.form['name']
     relation = request.form['relation']
@@ -210,11 +299,20 @@ def add_person():
         "photo": photo_path,
         "created_at": datetime.now()
     })
-    camera_manager.load_known_faces() # Reload to update cache
+    
+    # Optimization: Incremental Update
     # camera_manager.load_known_faces() # Reload to update cache
+    new_person = {
+        "name": name,
+        "relation": relation,
+        "photo": photo_path
+    }
+    camera_manager.add_person_to_memory(new_person)
+    
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/register_samples', methods=['POST'])
+@login_required
 def register_samples():
     data = request.json
     name = data['name']
@@ -295,16 +393,42 @@ def register_samples():
             "created_at": datetime.now()
         })
     
-    camera_manager.load_known_faces()
+    
+    # Validation / Optimization
+    if existing_person:
+        camera_manager.add_person_to_memory({
+            "name": name,
+            "relation": relation,
+            "photo_dir": f"known/{dir_name}" 
+        })
+    else:
+        # New Person
+        camera_manager.add_person_to_memory({
+            "name": name,
+            "relation": relation,
+            "photo_dir": f"known/{dir_name}"
+        })
+
+    # camera_manager.load_known_faces()
     return jsonify({"success": True})
 
 @app.route('/admin/delete/<serial_no>')
+@login_required
 def delete_person(serial_no):
-    persons.delete_one({"serial_no": int(serial_no)})
-    camera_manager.load_known_faces() # Reload
+    # Fetch name before delete to remove from memory
+    p = persons.find_one({"serial_no": int(serial_no)})
+    if p:
+        name = p['name']
+        persons.delete_one({"serial_no": int(serial_no)})
+        
+        # Incremental Remove
+        camera_manager.remove_person_from_memory(name)
+        # camera_manager.load_known_faces() # Reload
+        
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/update/<serial_no>', methods=['POST'])
+@login_required
 def update_person(serial_no):
     data = {
         "name": request.form['name'],

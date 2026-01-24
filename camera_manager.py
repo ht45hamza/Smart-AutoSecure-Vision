@@ -22,8 +22,51 @@ class CameraStream:
         self.started = False
         self.read_lock = threading.Lock()
         self.output_frame = None
+        self.roi_mask = None # For ROI
         if self.grabbed:
             self.output_frame = self.frame.copy()
+
+    def set_roi(self, roi_data):
+        """
+        Sets the Region of Interest (ROI) mask.
+        roi_data: {'type': 'rect'|'circle'|'poly'|'freehand', 'points': [...]} (normalized 0.0-1.0)
+        """
+        with self.read_lock:
+            if roi_data is None:
+                self.roi_mask = None
+                return
+
+            if self.frame is None: return
+
+            h, w = self.frame.shape[:2]
+            mask = np.zeros((h, w), dtype=np.uint8)
+            
+            points = roi_data.get('points')
+            shape_type = roi_data.get('type')
+            
+            try:
+                if shape_type == 'rect':
+                    # [x, y, w, h]
+                    x, y, rw, rh = points
+                    x, y, rw, rh = int(x*w), int(y*h), int(rw*w), int(rh*h)
+                    cv2.rectangle(mask, (x, y), (x+rw, y+rh), 255, -1)
+                    
+                elif shape_type == 'circle':
+                    # [cx, cy, r]
+                    cx, cy, r = points
+                    cx, cy, r = int(cx*w), int(cy*h), int(r*w)
+                    cv2.circle(mask, (cx, cy), r, 255, -1)
+                    
+                elif shape_type in ['poly', 'freehand']:
+                    # [[x, y], [x, y], ...]
+                    pts = np.array([ [int(p[0]*w), int(p[1]*h)] for p in points ], np.int32)
+                    pts = pts.reshape((-1, 1, 2))
+                    cv2.fillPoly(mask, [pts], 255)
+                
+                self.roi_mask = mask
+                print(f"ROI Set for {self.name}: {shape_type}")
+            except Exception as e:
+                print(f"Error setting ROI: {e}")
 
     def start(self):
         if self.started: return self
@@ -51,9 +94,15 @@ class CameraStream:
                 # Process frame
                 if self.process_callback:
                     try:
+                        # We pass the metadata to the callback, not apply it here blindly
+                        # Pass the mask separately ? 
+                        # Actually process_frame is decoupled.
+                        # We should just make sure self.roi_mask is accessible or passed.
+                        pass
+                        
                         frame = self.process_callback(frame)
                     except Exception as e:
-                        print(f"Error processing callback: {e}")
+                        print(f"Error processing callback: {e}") 
                         # If processing fails, still show raw frame!
                 
                 with self.read_lock:
@@ -128,7 +177,18 @@ class CameraManager:
         self.captures_dir = os.path.join(app_config['UPLOAD_FOLDER'], 'captures')
         os.makedirs(self.captures_dir, exist_ok=True)
         
+        # Optimization: Cache results per camera to decouple detection FPS from Video FPS
+        self.camera_states = {} # {id: {'last_detect': 0, 'results': []}}
+        
         self.load_known_faces()
+
+    def set_camera_roi(self, device_id, roi_data, cameras_dict):
+        """Sets ROI for a specific camera in the cameras dict"""
+        if device_id in cameras_dict:
+             stream = cameras_dict[device_id]['stream']
+             stream.set_roi(roi_data)
+             return True
+        return False
 
         if len(self.known_face_names) == 0:
             print(f"Warning: No known faces loaded. Detection will only show 'Unknown'.")
@@ -210,32 +270,131 @@ class CameraManager:
                     self.known_face_names.append(person['name'])
                     self.known_face_relations.append(person['relation'])
 
+
         self._save_cache(new_cache)
         print(f"Loaded {len(self.known_face_names)} faces.")
 
-    def process_frame(self, frame):
-        """Detects faces and annotates the frame"""
-        # Resize frame of video to 1/4 size for faster face recognition processing
-        # Ensure frame is valid
+    def add_person_to_memory(self, person_data):
+        """Incrementally adds a new person to memory without full reload."""
+        print(f"Adding person incrementally: {person_data['name']}")
+        
+        # Determine encoding source
+        encodings_to_add = []
+        
+        # 1. Try Directory
+        if 'photo_dir' in person_data and person_data['photo_dir']:
+             dir_path = os.path.join(self.app_config['UPLOAD_FOLDER'], person_data['photo_dir'])
+             if os.path.exists(dir_path):
+                 for fname in os.listdir(dir_path):
+                     if not fname.lower().endswith(('.jpg', '.jpeg', '.png')): continue
+                     full_path = os.path.join(dir_path, fname)
+                     try:
+                         image = face_recognition.load_image_file(full_path)
+                         encs = face_recognition.face_encodings(image)
+                         if encs: encodings_to_add.append(encs[0])
+                     except: pass
+        
+        # 2. Try Single File if none found
+        if not encodings_to_add and 'photo' in person_data:
+             photo_path = os.path.join(self.app_config['UPLOAD_FOLDER'], person_data['photo'])
+             try:
+                 image = face_recognition.load_image_file(photo_path)
+                 encs = face_recognition.face_encodings(image)
+                 if encs: encodings_to_add.append(encs[0])
+             except: pass
+
+        if encodings_to_add:
+            for enc in encodings_to_add:
+                self.known_face_encodings.append(enc)
+                self.known_face_names.append(person_data['name'])
+                self.known_face_relations.append(person_data['relation'])
+        else:
+            print("Warning: No valid face encoding found for new person.")
+
+    def remove_person_from_memory(self, name):
+        """Incrementally removes a person from memory by name."""
+        print(f"Removing person incrementally: {name}")
+        
+        # Iterate backwards to safely remove items
+        # Find all indices with this name
+        indices_to_remove = [i for i, n in enumerate(self.known_face_names) if n == name]
+        
+        for index in sorted(indices_to_remove, reverse=True):
+            del self.known_face_encodings[index]
+            del self.known_face_names[index]
+            del self.known_face_relations[index]
+
+
+
+
+    def process_frame(self, frame, device_id=None, roi_mask=None):
+        """
+        Processes frame with rate-limiting for AI detection.
+        Refactored for smooth streaming.
+        """
         if frame is None or frame.size == 0:
              return frame
-             
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+
+        # If no device_id provided (legacy), just run full detection (slow)
+        if device_id is None:
+             overlays = self._detect_faces_and_objects(frame)
+             return self._draw_overlays(frame, overlays)
+
+        # Initialize state
+        if device_id not in self.camera_states:
+             self.camera_states[device_id] = {'last_detect': 0, 'results': []}
         
-        # Convert the image from BGR color (which OpenCV uses) to RGB color (which face_recognition uses)
-        # Using numpy slicing for BGR to RGB conversion which is faster than cv2.cvtColor
+        state = self.camera_states[device_id]
+        now = time.time()
+        
+        # Rate Limit Detection to ~10 FPS (every 0.1s)
+        if (now - state['last_detect']) > 0.1:
+             try:
+                 # Apply ROI Mask ONLY for detection
+                 detect_frame = frame.copy()
+                 if roi_mask is not None:
+                      try:
+                          detect_frame = cv2.bitwise_and(detect_frame, detect_frame, mask=roi_mask)
+                      except: pass
+                 
+                 overlays = self._detect_faces_and_objects(detect_frame)
+                 state['results'] = overlays
+                 state['last_detect'] = now
+             except Exception as e:
+                 print(f"Detection Error: {e}")
+        
+        # Draw cached results on current FULL frame
+        # Also Draw ROI Border
+        frame = self._draw_overlays(frame, state['results'])
+        
+        if roi_mask is not None:
+             # Find contours of mask to draw border
+             contours, _ = cv2.findContours(roi_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+             cv2.drawContours(frame, contours, -1, (0, 255, 255), 1) # Yellow 1px border
+             
+             # Optional: Darken outside area slightly?
+             # mask_inv = cv2.bitwise_not(roi_mask)
+             # darker = cv2.addWeighted(frame, 0.5, np.zeros(frame.shape, frame.dtype), 0, 0)
+             # frame = cv2.bitwise_and(frame, frame, mask=roi_mask) + cv2.bitwise_and(darker, darker, mask=mask_inv)
+             # Keeping it simple for now as requested (just border).
+
+        return frame
+
+    def _detect_faces_and_objects(self, frame):
+        """Runs heavy AI detection and returns list of overlay data"""
+        overlays = []
+        
+        # Resize frame of video to 1/4 size for faster face recognition processing
+        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
         rgb_small_frame = small_frame[:, :, ::-1]
 
-        # Find all the faces and face encodings in the current frame of video
+        # --- FACE RECOGNITION ---
         face_locations = face_recognition.face_locations(rgb_small_frame)
         face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
-        face_names = []
         current_frame_stats = {"known": 0, "unknown": 0, "suspects": 0}
 
-
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-             # See if the face is a match for the known face(s)
             matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
             name = "Unknown"
             relation = "Stranger"
@@ -247,174 +406,151 @@ class CameraManager:
                     name = self.known_face_names[best_match_index]
                     relation = self.known_face_relations[best_match_index]
             
-            # --- AUTO REGISTRATION FOR UKNOWNS ---
+            # Auto Registration Logic (Simplified for copy/paste safety - same as before)
             if name == "Unknown":
                 try:
-                    # 1. Generate Info
                     new_name = f"Unknown {self.auto_id_counter}"
                     self.auto_id_counter += 1
-                    relation = "Auto-Detected" # Mark as auto-saved
+                    relation = "Auto-Detected"
                     
-                    # 2. Save Image
-                    # Need to extract face *before* drawing boxes (we have coords)
-                    # Coordinates are for small frame, scale up for save
-                    top_s, right_s, bottom_s, left_s = top, right, bottom, left
+                    # Scaling for save
                     top_f, right_f, bottom_f, left_f = top*4, right*4, bottom*4, left*4
-                    
-                    # Clamp
                     h, w, _ = frame.shape
-                    top_f = max(0, top_f); left_f = max(0, left_f)
-                    bottom_f = min(h, bottom_f); right_f = min(w, right_f)
-                    
+                    top_f = max(0, top_f); left_f = max(0, left_f); bottom_f = min(h, bottom_f); right_f = min(w, right_f)
                     face_img_save = frame[top_f:bottom_f, left_f:right_f].copy()
                     
                     if face_img_save.size > 0:
                         filename = f"{new_name.replace(' ', '_')}.jpg"
-                        # Use a dedicated folder or just uploads/known
                         save_path = os.path.join(self.app_config['UPLOAD_FOLDER'], 'known', filename)
                         os.makedirs(os.path.dirname(save_path), exist_ok=True)
                         cv2.imwrite(save_path, face_img_save)
                         
-                        rel_path = f"known/{filename}"
-                        
-                        # 3. Save to DB
                         self.persons.insert_one({
-                            "serial_no": 9000 + self.auto_id_counter, # Special range for autos
+                            "serial_no": 9000 + self.auto_id_counter,
                             "name": new_name,
                             "relation": relation,
                             "phone": "N/A",
                             "address": "Auto-Captured",
-                            "photo": rel_path,
+                            "photo": f"known/{filename}",
                             "created_at": datetime.now()
                         })
-                        
-                        # 4. Update Memory (Immediate Recognition)
                         self.known_face_encodings.append(face_encoding)
                         self.known_face_names.append(new_name)
                         self.known_face_relations.append(relation)
-                        
-                        # 5. Update Current
                         name = new_name
                         print(f"Auto-Registered: {name}")
-                
-                except Exception as e:
-                    print(f"Auto-reg error: {e}")
+                except Exception as e: print(f"Auto-reg error: {e}")
 
-            # Update Stats logic
+            # Stats & Trigger
             if relation == "Auto-Detected" or name.startswith("Unknown"):
                  current_frame_stats["unknown"] += 1
             else:
                  current_frame_stats["known"] += 1
-                
-            # --- CAPTURE SNAPSHOT ---
-            # Scale up
-            top *= 4; right *= 4; bottom *= 4; left *= 4
-            
-            # Clamp coords
-            h, w, _ = frame.shape
-            top = max(0, top); left = max(0, left)
-            bottom = min(h, bottom); right = min(w, right)
-            
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            snap_filename = f"event_{timestamp}_{name}.jpg"
-            snap_path = os.path.join(self.captures_dir, snap_filename)
-            
-            # Save cropped face (only if not recently logged to avoid spamming I/O)
-            # We check stats history in log_event, so maybe safe to save ?
-            # Better: only save if we are GOING to log it.
-            
-            face_img = frame[top:bottom, left:right]
-            if face_img.size > 0:
-                 # Pass image to log_event to save ONLY if new event
-                 # Debug: print(f"Logging {name}")
-                 self.log_event(name, "Detected", relation, face_img)
-
-            # Draw Box & Label
-            color = (0, 0, 255) if name == "Unknown" else (0, 255, 0)
-            if "suspect" in relation.lower(): color = (0, 165, 255) # Orange
-            
-            cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-            cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color, cv2.FILLED)
-            font = cv2.FONT_HERSHEY_DUPLEX
-            cv2.putText(frame, f"{name} ({relation})", (left + 6, bottom - 6), font, 0.6, (255, 255, 255), 1)
-
+                 
             if "suspect" in relation.lower():
                  self.emergency.trigger_emergency("Known Suspect")
 
-        # --- YOLO OBJECT DETECTION (WEAPONS) ---
+            # Capture Snapshot Logic
+            # Scale coordinates for drawing/saving
+            top *= 4; right *= 4; bottom *= 4; left *= 4
+            
+            # Log Event
+            h, w, _ = frame.shape
+            c_top = max(0, top); c_left = max(0, left); c_bottom = min(h, bottom); c_right = min(w, right)
+            face_img = frame[c_top:c_bottom, c_left:c_right]
+            if face_img.size > 0:
+                 self.log_event(name, "Detected", relation, face_img)
 
-        # --- YOLO OBJECT DETECTION (WEAPONS & FIGHTS) ---
-        # Run inference on the small frame (RGB)
+            # Add to overlays
+            color = (0, 0, 255) if name.startswith("Unknown") else (0, 255, 0)
+            if "suspect" in relation.lower(): color = (0, 165, 255)
+            
+            overlays.append({
+                'type': 'box',
+                'coords': (left, top, right, bottom),
+                'color': color,
+                'label': f"{name} ({relation})",
+                'filled': True # Bottom label bar
+            })
+
+        # --- YOLO OBJECT DETECTION ---
         results = self.model(rgb_small_frame, verbose=False, iou=0.5, conf=0.4)
-        
-        person_boxes = [] # For fight detection
+        person_boxes = []
 
         for r in results:
             boxes = r.boxes
             for box in boxes:
                 cls = int(box.cls[0])
-                
-                # Person Detection (Class 0)
-                if cls == 0:
+                if cls == 0: # Person
                      x1, y1, x2, y2 = box.xyxy[0]
-                     # Scale back up
                      x1, y1, x2, y2 = int(x1*4), int(y1*4), int(x2*4), int(y2*4)
                      person_boxes.append((x1, y1, x2, y2))
                      continue
 
-                # Weapon Detection
                 if cls in self.threat_classes:
-                    # Detected a threat
                     x1, y1, x2, y2 = box.xyxy[0]
-                    # Scale back up
                     x1, y1, x2, y2 = int(x1*4), int(y1*4), int(x2*4), int(y2*4)
-                    
                     label = self.threat_classes[cls]
                     
-                    # Draw RED Box
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 0, 255), 3)
-                    cv2.putText(frame, f"THREAT: {label}", (x1, y1 - 10), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                                
                     self.emergency.trigger_emergency(f"Weapon ({label})")
-                    with self.stats_lock:
-                        self.stats["suspects"] += 1 # Count as suspect activity
+                    with self.stats_lock: self.stats["suspects"] += 1
+                    
+                    overlays.append({
+                        'type': 'box',
+                        'coords': (x1, y1, x2, y2),
+                        'color': (0, 0, 255),
+                        'label': f"THREAT: {label}", 
+                        'thick': 3
+                    })
 
-        # --- FIGHT DETECTION (HEURISTIC) ---
+        # --- FIGHT DETECTION ---
         if len(person_boxes) >= 2:
             import itertools
             for (box1, box2) in itertools.combinations(person_boxes, 2):
-                # Calculate IOU or simple intersection
-                xA = max(box1[0], box2[0])
-                yA = max(box1[1], box2[1])
-                xB = min(box1[2], box2[2])
-                yB = min(box1[3], box2[3])
-                
+                xA = max(box1[0], box2[0]); yA = max(box1[1], box2[1])
+                xB = min(box1[2], box2[2]); yB = min(box1[3], box2[3])
                 interArea = max(0, xB - xA) * max(0, yB - yA)
                 box1Area = (box1[2] - box1[0]) * (box1[3] - box1[1])
                 box2Area = (box2[2] - box2[0]) * (box2[3] - box2[1])
-                
-                # Intersection over Union
                 iou = interArea / float(box1Area + box2Area - interArea)
                 
-                # If high overlap, flag as fight
                 if iou > 0.35:
-                     # Draw "FIGHT" box around encompassing area
-                     fx1 = min(box1[0], box2[0])
-                     fy1 = min(box1[1], box2[1])
-                     fx2 = max(box1[2], box2[2])
-                     fy2 = max(box1[3], box2[3])
-                     
-                     cv2.rectangle(frame, (fx1, fy1), (fx2, fy2), (128, 0, 128), 4)
-                     cv2.putText(frame, "VIOLENCE DETECTED", (fx1, fy1 - 10),
-                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (128, 0, 128), 3)
+                     fx1 = min(box1[0], box2[0]); fy1 = min(box1[1], box2[1])
+                     fx2 = max(box1[2], box2[2]); fy2 = max(box1[3], box2[3])
                      
                      self.log_event("System", "Violence Detected", "Suspect")
                      self.emergency.trigger_emergency("Violence / Fighting")
+                     
+                     overlays.append({
+                        'type': 'box',
+                        'coords': (fx1, fy1, fx2, fy2),
+                        'color': (128, 0, 128),
+                        'label': "VIOLENCE DETECTED",
+                        'thick': 4
+                     })
+                     
+        return overlays
 
-        # Update global accumulative stats
-        # We rely on log_event for accurate "Event" counting now.
-        pass
+    def _draw_overlays(self, frame, overlays):
+        """Draws cached overlays on the frame"""
+        for item in overlays:
+            try:
+                if item['type'] == 'box':
+                    l, t, r, b = item['coords']
+                    c = item['color']
+                    thick = item.get('thick', 2)
+                    
+                    cv2.rectangle(frame, (l, t), (r, b), c, thick)
+                    
+                    if item.get('filled'):
+                        cv2.rectangle(frame, (l, b - 35), (r, b), c, cv2.FILLED)
+                        cv2.putText(frame, item['label'], (l + 6, b - 6), 
+                                    cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+                    else:
+                        cv2.putText(frame, item['label'], (l, t - 10), 
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, c, 2)
+            except: pass
+        return frame
 
     def log_event(self, name, action, relation="Visitor", face_img=None):
         """Adds an event to the history log"""

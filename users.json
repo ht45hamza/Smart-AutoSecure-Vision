@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Abu Bakar Iqbal",
+    "email": "abubakariqbal04@gmail.com",
+    "password": "scrypt:32768:8:1$mFZ1M9owps8Fp2Id$c384f95a181c4f99cc4b5bff293a8f761cee4d1eaeae74d3b0fbd6b00746ea4377ea3c103c30aafc108d7e14d128d072f73201945a27172fdf666ae7c688a1c2",
+    "is_verified": false,
+    "otp": "840019",
+    "otp_time": 1769279134.21218,
+    "created_at": 1769279134.21218,
+    "_id": "1769279134212"
+  }
+]
