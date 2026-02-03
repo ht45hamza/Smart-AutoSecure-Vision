@@ -13,8 +13,8 @@
             --bg-dark: #0f172a;
             --bg-card: #1e293b;
             --text-main: #f8fafc;
-            --accent-color: #ef4444;
-            /* Red for Emergency */
+            --accent-color: #3b82f6;
+            /* Blue for Consistency */
         }
 
         body {
@@ -59,7 +59,7 @@
         }
 
         .nav-item.active {
-            background: rgba(239, 68, 68, 0.1);
+            background: rgba(59, 130, 246, 0.1);
             color: var(--accent-color);
             border-left-color: var(--accent-color);
         }
@@ -102,9 +102,10 @@
     <aside class="sidebar">
         <div class="sidebar-brand"><i class="fas fa-eye"></i> AutoSecure</div>
         <nav>
-            <a href="/" class="nav-item"><i class="fas fa-chart-line"></i> Dashboard</a>
-            <a href="/admin" class="nav-item"><i class="fas fa-users-cog"></i> Database Manager</a>
+            <a href="/" class="nav-item"><i class="fas fa-chart-line"></i> Live Dashboard</a>
+            <a href="/admin" class="nav-item"><i class="fas fa-users-cog"></i> Settings</a>
             <a href="/admin/contacts" class="nav-item active"><i class="fas fa-phone-volume"></i> Emergency Contacts</a>
+            <a href="/admin/logs" class="nav-item"><i class="fas fa-file-medical-alt"></i> Suspect Log</a>
         </nav>
     </aside>
 

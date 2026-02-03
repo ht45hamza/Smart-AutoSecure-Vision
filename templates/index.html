@@ -153,12 +153,8 @@
       <button class="btn btn-outline-info me-3" data-bs-toggle="modal" data-bs-target="#cameraModal">
         <i class="fas fa-video"></i> Add Camera
       </button>
-      <!-- NEW: Add Person Button -->
-      <button class="btn btn-outline-success me-3" data-bs-toggle="modal" data-bs-target="#personModal">
-        <i class="fas fa-user-plus"></i> Add Person
-      </button>
       <button class="btn btn-warning" onclick="window.location.href='/admin'">
-        <i class="fas fa-users-cog"></i> Manage Persons
+        <i class="fas fa-users-cog"></i> Settings
       </button>
     </div>
   </div>
@@ -482,7 +478,7 @@
           const sx = roiPoints[0][0];
           const sy = roiPoints[0][1];
           const dist = Math.sqrt((x - sx) ** 2 + (y - sy) ** 2);
-          if (dist < 15) { // 15px snap radius
+          if (dist < 25) { // Increased snap radius (25px)
             finalizeShape();
             isDrawing = false;
             return;
@@ -525,6 +521,18 @@
         roiPoints[2] = Math.sqrt(dx * dx + dy * dy);
       } else if (currentTool === 'freehand') {
         roiPoints.push([x, y]);
+
+        // Auto-close loop if strictly drawing and returned to start
+        if (roiPoints.length > 20) {
+          const sx = roiPoints[0][0];
+          const sy = roiPoints[0][1];
+          const dist = Math.sqrt((x - sx) ** 2 + (y - sy) ** 2);
+          if (dist < 20) {
+            isDrawing = false;
+            finalizeShape();
+            return;
+          }
+        }
       }
       draw();
     });
@@ -572,7 +580,22 @@
           ctx.lineTo(roiPoints[i][0], roiPoints[i][1]);
         }
         if (cursorX !== null && currentTool === 'poly') {
-          ctx.lineTo(cursorX, cursorY);
+          // Visual Hint: Check if near start
+          if (roiPoints.length > 2) {
+            const sx = roiPoints[0][0];
+            const sy = roiPoints[0][1];
+            const dist = Math.sqrt((cursorX - sx) ** 2 + (cursorY - sy) ** 2);
+            if (dist < 25) {
+              // Snap visual
+              ctx.lineTo(sx, sy);
+              ctx.fillStyle = 'rgba(46, 204, 113, 0.5)'; // Fill hint
+              ctx.fill();
+            } else {
+              ctx.lineTo(cursorX, cursorY);
+            }
+          } else {
+            ctx.lineTo(cursorX, cursorY);
+          }
         }
         if (!isDrawing && currentTool !== 'poly') ctx.closePath(); // Close if finished
         if (currentTool === 'poly' && roiPoints.length > 2 && cursorX === null) ctx.closePath();
@@ -600,13 +623,28 @@
       let normPoints = [];
 
       if (roiShape.type === 'rect') {
-        // x, y, w, h
-        normPoints = [roiShape.points[0] / w, roiShape.points[1] / h, roiShape.points[2] / w, roiShape.points[3] / h];
+        // Normalize rect to always have positive width/height, x/y at top-left
+        let x = roiShape.points[0];
+        let y = roiShape.points[1];
+        let rw = roiShape.points[2];
+        let rh = roiShape.points[3];
+
+        if (rw < 0) { x += rw; rw = Math.abs(rw); }
+        if (rh < 0) { y += rh; rh = Math.abs(rh); }
+
+        normPoints = [x / w, y / h, rw / w, rh / h];
       } else if (roiShape.type === 'circle') {
-        normPoints = [roiShape.points[0] / w, roiShape.points[1] / h, roiShape.points[2] / w]; // Radius relative to Width
+        // cx, cy, radius
+        // Ensure radius is positive
+        normPoints = [roiShape.points[0] / w, roiShape.points[1] / h, Math.abs(roiShape.points[2]) / w];
       } else {
-        // Poly/Freehand
+        // Poly/Freehand: [[x,y], [x,y]...]
         normPoints = roiShape.points.map(p => [p[0] / w, p[1] / h]);
+      }
+
+      if (roiShape.type === 'poly' && normPoints.length < 3) {
+        alert("Polygon must have at least 3 points.");
+        return;
       }
 
       const payload = {
@@ -632,9 +670,15 @@
     }
 
     function skipRoi() {
+      // Just hide
       const el = document.getElementById('roiModal');
       const modal = bootstrap.Modal.getInstance(el);
-      modal.hide();
+      if (modal) {
+        modal.hide();
+      } else {
+        // Fallback
+        new bootstrap.Modal(el).hide();
+      }
     }
 
     // Set main camera
@@ -645,7 +689,49 @@
 
     const addedCameras = new Set();
 
-    // Auto-load cameras on modal open
+    // Auto-load cameras on modal open AND on page load
+    // Persistence Logic
+    window.addEventListener('load', async () => {
+      try {
+        const res = await fetch('/api/added_cameras');
+        const cameras = await res.json();
+
+        cameras.forEach(cam => {
+          addedCameras.add(cam.id);
+
+          // Restore View
+          if (cam.main) {
+            mainCameraId = cam.id;
+            document.getElementById('mainFeed').src = `/video_feed/${cam.id}?t=${Date.now()}`;
+            document.getElementById('noCamText').style.display = 'none';
+
+            // Restore Main ROI Button
+            let mainEditBtn = document.getElementById('mainRoiBtn');
+            if (!mainEditBtn) {
+              const btn = document.createElement('button');
+              btn.id = 'mainRoiBtn';
+              btn.className = 'btn btn-sm btn-dark position-absolute top-0 end-0 m-4';
+              btn.innerHTML = '<i class="fas fa-crop-alt"></i> Edit ROI';
+              btn.onclick = () => setupRoi(cam.id);
+              document.querySelector('.main-video').appendChild(btn);
+            }
+          } else {
+            // Add to small grid
+            const wrapper = document.createElement('div');
+            wrapper.className = 'small-cam position-relative';
+            wrapper.innerHTML = `
+                      <img src="/video_feed/${cam.id}?t=${Date.now()}" class="w-100 h-100" style="object-fit: cover; border-radius: 14px;" onclick="setMainCamera(${cam.id})">
+                      <div class="live-badge position-absolute top-0 start-0 m-2" style="font-size:0.7rem;padding:4px 10px;">LIVE</div>
+                      <button class="btn btn-sm btn-dark position-absolute top-0 end-0 m-2" style="opacity:0.8;" onclick="event.stopPropagation(); setupRoi(${cam.id})" title="Edit ROI">
+                            <i class="fas fa-crop-alt"></i>
+                      </button>
+                   `;
+            document.getElementById('smallGrid').appendChild(wrapper);
+          }
+        });
+      } catch (e) { console.error("Error restoring cameras", e); }
+    });
+
     // document.getElementById('cameraModal').addEventListener('show.bs.modal', loadCameras); // Removed undefined function ref
 
 
@@ -693,7 +779,7 @@
               <div class="ms-3 overflow-hidden">
                 <div class="d-flex justify-content-between align-items-center">
                   <strong class="${item.name === 'Unknown' ? 'text-danger' : (item.name === 'System' ? 'text-warning' : 'text-success')} text-truncate" style="max-width:140px;">${item.name}</strong>
-                  <span class="small text-muted ms-2" style="font-size:0.75rem;">${item.time}</span>
+                  <span class="small text-muted ms-2" style="font-size:0.75rem;">${item.date ? item.date + ' ' : ''}${item.time}</span>
                 </div>
                 <div class="small text-white-50 text-truncate">${item.action} <span class="text-secondary">• ${item.relation}</span></div>
               </div>

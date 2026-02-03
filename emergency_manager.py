@@ -83,7 +83,7 @@ class EmergencyManager:
                 # Still active but maybe change message to "Connected"
                 self.active_alert['message'] = "CALL CONNECTED - ALERTING SUSPECT DETECTED"
             
-            if (time.time() - self.active_alert['timestamp']) > 15:
+            if (time.time() - self.active_alert['timestamp']) > 2:
                  self.active_alert = None # Reset
                  return {"active": False}
                  

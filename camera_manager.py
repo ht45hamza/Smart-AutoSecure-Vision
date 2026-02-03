@@ -384,18 +384,26 @@ class CameraManager:
         """Runs heavy AI detection and returns list of overlay data"""
         overlays = []
         
-        # Resize frame of video to 1/4 size for faster face recognition processing
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+        # Resize frame of video to 1/2 size (improved from 1/4) for better face recognition logic
+        # Standard FaceNet/dlib usage
+        small_frame = cv2.resize(frame, (0, 0), fx=0.5, fy=0.5)
         rgb_small_frame = small_frame[:, :, ::-1]
 
         # --- FACE RECOGNITION ---
+        # Using HOG model (default) or 'cnn' if GPU available (but assuming CPU for now for safety)
         face_locations = face_recognition.face_locations(rgb_small_frame)
         face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
 
         current_frame_stats = {"known": 0, "unknown": 0, "suspects": 0}
 
         for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding)
+            # Scale back up (since we used 0.5x, we multiply by 2)
+            top *= 2; right *= 2; bottom *= 2; left *= 2
+
+            # Compare (Tolerance: Lower is stricter. Default is 0.6)
+            # User experiencing "not recognized" -> 0.6 is standard.
+            # Using distance to find best match is more reliable than strict boolean.
+            matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=0.55)
             name = "Unknown"
             relation = "Stranger"
 
@@ -413,10 +421,10 @@ class CameraManager:
                     self.auto_id_counter += 1
                     relation = "Auto-Detected"
                     
-                    # Scaling for save
-                    top_f, right_f, bottom_f, left_f = top*4, right*4, bottom*4, left*4
+                    # Scaling: 'top', 'right' etc are ALREADY scaled to original size in the loop above.
+                    # So we just use them directly.
                     h, w, _ = frame.shape
-                    top_f = max(0, top_f); left_f = max(0, left_f); bottom_f = min(h, bottom_f); right_f = min(w, right_f)
+                    top_f = max(0, top); left_f = max(0, left); bottom_f = min(h, bottom); right_f = min(w, right)
                     face_img_save = frame[top_f:bottom_f, left_f:right_f].copy()
                     
                     if face_img_save.size > 0:
@@ -451,8 +459,7 @@ class CameraManager:
                  self.emergency.trigger_emergency("Known Suspect")
 
             # Capture Snapshot Logic
-            # Scale coordinates for drawing/saving
-            top *= 4; right *= 4; bottom *= 4; left *= 4
+            # Coordinates are already scaled back to 1.0 (original frame) at the start of loop.
             
             # Log Event
             h, w, _ = frame.shape
@@ -602,13 +609,25 @@ class CameraManager:
             except Exception as e:
                 print(f"Failed to save snap: {e}")
 
-        self.stats["history"].append({
+        log_entry = {
             "name": name,
             "action": action,
             "relation": relation,
             "image": snap_rel_path,
-            "time": now.strftime("%H:%M:%S")
-        })
+            "time": now.strftime("%H:%M:%S"),
+            "date": now.strftime("%Y-%m-%d")
+        }
+        
+        self.stats["history"].append(log_entry)
+        
+        # Permanent Log for "Suspects Log" page
+        if name == "System" or "Suspect" in relation or name == "Unknown":
+             if "suspect_logs" not in self.stats: self.stats["suspect_logs"] = []
+             # Prepend to show newest first
+             self.stats["suspect_logs"].insert(0, log_entry)
+             # Limit to 100 for now
+             if len(self.stats["suspect_logs"]) > 100:
+                 self.stats["suspect_logs"].pop()
 
 
     def get_stats(self):

@@ -173,6 +173,21 @@ def get_cameras():
             cap.release()
     return jsonify(available)
 
+@app.route('/api/added_cameras')
+def get_added_cameras():
+    # Return list of cameras that have been added by the user
+    # 'cameras' global dict contains {id: {'stream':..., 'label':..., 'main': bool}}
+    # We need to return metadata to rebuild the UI
+    active_list = []
+    with lock:
+        for cam_id, cam_data in cameras.items():
+            active_list.append({
+                'id': cam_id,
+                'label': cam_data['label'],
+                'main': cam_data.get('main', False)
+            })
+    return jsonify(active_list)
+
 @app.route('/add_camera', methods=['POST'])
 def add_camera():
     global main_camera_id
@@ -263,6 +278,11 @@ def simulate_threat():
     return jsonify({'success': True, 'alert': alert})
 
 
+@app.route('/admin/logs')
+def logs_panel():
+    logs = camera_manager.get_stats().get('suspect_logs', [])
+    return render_template('logs.html', logs=logs)
+
 # --- ADMIN PANEL ROUTES ---
 @app.route('/admin')
  
@@ -293,8 +313,15 @@ def delete_contact(contact_id):
 
 @app.route('/admin/add', methods=['POST'])
  
+@app.route('/admin/add', methods=['POST'])
 def add_person():
     name = request.form['name']
+    
+    # Check for existing person
+    existing = persons.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}}) # Case insensitive check
+    if existing:
+        return jsonify({"success": False, "message": f"Person with name '{name}' already exists!"})
+
     relation = request.form['relation']
     phone = request.form['phone']
     address = request.form['address']
@@ -319,8 +346,7 @@ def add_person():
         "created_at": datetime.now()
     })
     
-    # Optimization: Incremental Update
-    # camera_manager.load_known_faces() # Reload to update cache
+    # Incremental Update
     new_person = {
         "name": name,
         "relation": relation,
@@ -328,7 +354,7 @@ def add_person():
     }
     camera_manager.add_person_to_memory(new_person)
     
-    return redirect(url_for('admin_panel'))
+    return jsonify({"success": True})
 
 @app.route('/admin/register_samples', methods=['POST'])
  
