@@ -86,7 +86,7 @@ def generate_frames(device_id):
         time.sleep(0.03) # Limit sending rate to ~30 FPS
 
 @app.route('/')
-@login_required
+ 
 def index():
     return render_template('index.html')
 
@@ -149,14 +149,14 @@ def forgot_password():
     return render_template('forgot_password.html', step=1)
 
 @app.route('/logout')
-@login_required
+ 
 def logout():
     logout_user()
     return redirect(url_for('login'))
 
 # --- CAMERA ROUTES ---
 @app.route('/video_feed/<int:device_id>')
-@login_required
+ 
 def video_feed(device_id):
     return Response(generate_frames(device_id), mimetype='multipart/x-mixed-replace; boundary=frame')
 
@@ -243,22 +243,41 @@ def set_roi():
         else:
             return jsonify({'success': False, 'message': 'Camera not found'})
 
-# --- ADMIN PANEL ROUTES ---
+@app.route('/api/stats')
+def get_stats():
+    return jsonify(camera_manager.get_stats())
+
+@app.route('/api/emergency_status')
+def get_emergency_status():
+    return jsonify(camera_manager.emergency.get_status())
+
+@app.route('/api/simulate_threat', methods=['POST'])
+def simulate_threat():
+    data = request.json
+    threat_type = data.get('type', 'Simulated Threat')
+    
+    # Log and Trigger
+    camera_manager.log_event("System", f"Simulated: {threat_type}", "Medical/Test")
+    alert = camera_manager.emergency.trigger_emergency(threat_type)
+    
+    return jsonify({'success': True, 'alert': alert})
+
+
 # --- ADMIN PANEL ROUTES ---
 @app.route('/admin')
-@login_required
+ 
 def admin_panel():
     all_persons = list(persons.find().sort("serial_no", -1))
     return render_template('admin.html', persons=all_persons)
 
 @app.route('/admin/contacts')
-@login_required
+ 
 def contacts_panel():
     contacts = camera_manager.emergency.get_contacts()
     return render_template('contacts.html', contacts=contacts)
 
 @app.route('/admin/add_contact', methods=['POST'])
-@login_required
+ 
 def add_contact():
     name = request.form['name']
     phone = request.form['phone']
@@ -267,13 +286,13 @@ def add_contact():
     return redirect(url_for('contacts_panel'))
 
 @app.route('/admin/delete_contact/<contact_id>')
-@login_required
+ 
 def delete_contact(contact_id):
     camera_manager.emergency.delete_contact(contact_id)
     return redirect(url_for('contacts_panel'))
 
 @app.route('/admin/add', methods=['POST'])
-@login_required
+ 
 def add_person():
     name = request.form['name']
     relation = request.form['relation']
@@ -312,7 +331,7 @@ def add_person():
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/register_samples', methods=['POST'])
-@login_required
+ 
 def register_samples():
     data = request.json
     name = data['name']
@@ -413,7 +432,7 @@ def register_samples():
     return jsonify({"success": True})
 
 @app.route('/admin/delete/<serial_no>')
-@login_required
+ 
 def delete_person(serial_no):
     # Fetch name before delete to remove from memory
     p = persons.find_one({"serial_no": int(serial_no)})
@@ -428,7 +447,7 @@ def delete_person(serial_no):
     return redirect(url_for('admin_panel'))
 
 @app.route('/admin/update/<serial_no>', methods=['POST'])
-@login_required
+ 
 def update_person(serial_no):
     data = {
         "name": request.form['name'],

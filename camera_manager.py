@@ -493,8 +493,16 @@ class CameraManager:
                     label = self.threat_classes[cls]
                     
                     self.emergency.trigger_emergency(f"Weapon ({label})")
-                    with self.stats_lock: self.stats["suspects"] += 1
                     
+                    # Log to Tracking
+                    h, w, _ = frame.shape
+                    # Clamp coordinates
+                    cy1, cx1 = max(0, y1), max(0, x1)
+                    cy2, cx2 = min(h, y2), min(w, x2)
+                    weapon_img = frame[cy1:cy2, cx1:cx2].copy()
+                    
+                    self.log_event("System", f"Weapon: {label}", "Suspect", weapon_img)
+
                     overlays.append({
                         'type': 'box',
                         'coords': (x1, y1, x2, y2),

@@ -6,6 +6,7 @@ class JsonDB:
     """Authentication and Database mock acting as a MongoDB Database object."""
     def __init__(self, db_name="local_data"):
         self.name = db_name
+        self.is_json_db = True
         self.collections = {}
 
     def __getitem__(self, collection_name):

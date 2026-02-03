@@ -8,5 +8,15 @@
     "otp_time": 1769279134.21218,
     "created_at": 1769279134.21218,
     "_id": "1769279134212"
+  },
+  {
+    "name": "Abu Bakar Iqbal",
+    "email": "bcs22039@pugc.edu.pk",
+    "password": "scrypt:32768:8:1$210zhH0atwOI7r50$91bd48dda71f8cbec6782d44e416c9d8e3d5f47db1c5ef3f9f4450af30625d3352a4ec4ce38aa438512b19b35b367c41edba3e36f6c0ed9886db64ee1731aef5",
+    "is_verified": false,
+    "otp": "163451",
+    "otp_time": 1769452642.727777,
+    "created_at": 1769452642.727777,
+    "_id": "1769452642730"
   }
 ]

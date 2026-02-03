@@ -2,76 +2,11 @@
   {
     "serial_no": 1001,
     "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "+923245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "1001_Untitled-1.png",
-    "created_at": "2025-12-10 00:11:58.766357",
-    "_id": "1765307518766"
-  },
-  {
-    "serial_no": 1002,
-    "name": "Annas Abbas",
     "relation": "Employee",
-    "phone": "03244094040",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "1002_anas.jpg",
-    "created_at": "2025-12-10 00:14:01.017983",
-    "_id": "1765307641017"
-  },
-  {
-    "serial_no": 1004,
-    "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "03245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "known/1004_Abu_Bakar_Iqbal/sample_0.jpg",
-    "photo_dir": "known/1004_Abu_Bakar_Iqbal",
-    "created_at": "2025-12-10 00:51:30.236232",
-    "_id": "1765309890236"
-  },
-  {
-    "serial_no": 1006,
-    "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "03245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "known/1006_Abu_Bakar_Iqbal/sample_0.jpg",
-    "photo_dir": "known/1006_Abu_Bakar_Iqbal",
-    "created_at": "2025-12-10 00:51:53.592495",
-    "_id": "1765309913592"
-  },
-  {
-    "serial_no": 1006,
-    "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "03245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "known/1006_Abu_Bakar_Iqbal/sample_0.jpg",
-    "photo_dir": "known/1006_Abu_Bakar_Iqbal",
-    "created_at": "2025-12-10 00:51:54.456246",
-    "_id": "1765309914456"
-  },
-  {
-    "serial_no": 1006,
-    "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "03245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "known/1006_Abu_Bakar_Iqbal/sample_0.jpg",
-    "photo_dir": "known/1006_Abu_Bakar_Iqbal",
-    "created_at": "2025-12-10 00:51:55.836660",
-    "_id": "1765309915836"
-  },
-  {
-    "serial_no": 1006,
-    "name": "Abu Bakar Iqbal",
-    "relation": "Family",
-    "phone": "03245906459",
-    "address": "Muhallah Rehman pura Daoke Muridke",
-    "photo": "known/1006_Abu_Bakar_Iqbal/sample_0.jpg",
-    "photo_dir": "known/1006_Abu_Bakar_Iqbal",
-    "created_at": "2025-12-10 00:52:05.716105",
-    "_id": "1765309925716"
+    "phone": "+9287634648",
+    "address": "muridke",
+    "photo": "1001_WhatsApp Image 2025-12-15 at 10.59.40 PM.jpeg",
+    "created_at": "2026-02-03 03:25:26.036451",
+    "_id": "1770071126036"
   }
 ]

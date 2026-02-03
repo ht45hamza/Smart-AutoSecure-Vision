@@ -89,6 +89,10 @@
             margin: 0;
             color: #94a3b8;
         }
+
+        .hover-opacity-100:hover {
+            opacity: 1 !important;
+        }
     </style>
 </head>
 
@@ -117,31 +121,44 @@
         </div>
 
         <!-- Contacts List -->
-        <div class="row">
-            <div class="col-md-8">
-                {% for c in contacts %}
-                <div class="d-flex align-items-center gap-3">
-                    <div class="bg-danger bg-opacity-10 text-danger p-3 rounded">
-                        <i class="fas fa-user-shield fa-lg"></i>
+        <div class="row g-4">
+            {% for c in contacts %}
+            <div class="col-md-6 col-lg-4">
+                <div class="contact-card h-100 position-relative group">
+                    <div class="d-flex align-items-center gap-4">
+                        <div class="bg-danger bg-opacity-10 text-danger p-3 rounded-circle d-flex align-items-center justify-content-center"
+                            style="width: 60px; height: 60px;">
+                            <i class="fas fa-user-shield fa-lg"></i>
+                        </div>
+                        <div class="contact-info flex-grow-1">
+                            <h5 class="mb-1 text-white fw-bold">{{ c.name }}</h5>
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <span
+                                    class="badge bg-danger bg-opacity-25 text-danger border border-danger border-opacity-25">{{
+                                    c.relation }}</span>
+                            </div>
+                            <p class="text-secondary small font-monospace"><i class="fas fa-phone me-1"></i> {{ c.phone
+                                }}</p>
+                        </div>
                     </div>
-                    <div class="contact-info">
-                        <h5>{{ c.name }}</h5>
-                        <p><i class="fas fa-phone me-1"></i> {{ c.phone }} <span class="badge bg-secondary ms-2">{{
-                                c.relation }}</span></p>
-                    </div>
+
+                    <a href="/admin/delete_contact/{{ c._id }}"
+                        class="btn btn-outline-danger btn-sm position-absolute top-0 end-0 m-3 opacity-50 hover-opacity-100"
+                        onclick="return confirm('Permanently remove {{ c.name }} from emergency responders?')"
+                        title="Delete Contact">
+                        <i class="fas fa-trash"></i>
+                    </a>
                 </div>
-                <a href="/admin/delete_contact/{{ c._id }}" class="btn btn-outline-danger btn-sm"
-                    onclick="return confirm('Remove this responder?')">
-                    <i class="fas fa-trash"></i>
-                </a>
             </div>
             {% else %}
-            <div class="text-center text-muted py-5">
-                <i class="fas fa-phone-slash fa-3x mb-3"></i>
-                <p>No emergency contacts configured.</p>
+            <div class="col-12 py-5 text-center">
+                <div class="mb-3 text-secondary opacity-50">
+                    <i class="fas fa-users-slash fa-4x"></i>
+                </div>
+                <h5 class="text-secondary">No responders configured</h5>
+                <p class="small text-muted">Add security personnel or local authorities to auto-dial during alerts.</p>
             </div>
             {% endfor %}
-        </div>
         </div>
     </main>
 
