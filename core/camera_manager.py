@@ -464,9 +464,8 @@ class CameraManager:
             # Log Event
             h, w, _ = frame.shape
             c_top = max(0, top); c_left = max(0, left); c_bottom = min(h, bottom); c_right = min(w, right)
-            face_img = frame[c_top:c_bottom, c_left:c_right]
-            if face_img.size > 0:
-                 self.log_event(name, "Detected", relation, face_img)
+            if frame.size > 0:
+                 self.log_event(name, "Detected", relation, frame.copy())
 
             # Add to overlays
             color = (0, 0, 255) if name.startswith("Unknown") else (0, 255, 0)
@@ -501,14 +500,7 @@ class CameraManager:
                     
                     self.emergency.trigger_emergency(f"Weapon ({label})")
                     
-                    # Log to Tracking
-                    h, w, _ = frame.shape
-                    # Clamp coordinates
-                    cy1, cx1 = max(0, y1), max(0, x1)
-                    cy2, cx2 = min(h, y2), min(w, x2)
-                    weapon_img = frame[cy1:cy2, cx1:cx2].copy()
-                    
-                    self.log_event("System", f"Weapon: {label}", "Suspect", weapon_img)
+                    self.log_event("System", f"Weapon: {label}", "Suspect", frame.copy())
 
                     overlays.append({
                         'type': 'box',
@@ -533,7 +525,7 @@ class CameraManager:
                      fx1 = min(box1[0], box2[0]); fy1 = min(box1[1], box2[1])
                      fx2 = max(box1[2], box2[2]); fy2 = max(box1[3], box2[3])
                      
-                     self.log_event("System", "Violence Detected", "Suspect")
+                     self.log_event("System", "Violence Detected", "Suspect", frame.copy())
                      self.emergency.trigger_emergency("Violence / Fighting")
                      
                      overlays.append({

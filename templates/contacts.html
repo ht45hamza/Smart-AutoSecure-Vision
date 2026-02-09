@@ -1,3 +1,4 @@
+{% load custom_filters %}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -143,7 +144,7 @@
                         </div>
                     </div>
 
-                    <a href="/admin/delete_contact/{{ c._id }}/"
+                    <a href="/admin/delete_contact/{{ c|get_item:'_id' }}/"
                         class="btn btn-outline-danger btn-sm position-absolute top-0 end-0 m-3 opacity-50 hover-opacity-100"
                         onclick="return confirm('Permanently remove {{ c.name }} from emergency responders?')"
                         title="Delete Contact">
@@ -151,7 +152,7 @@
                     </a>
                 </div>
             </div>
-            {% else %}
+            {% empty %}
             <div class="col-12 py-5 text-center">
                 <div class="mb-3 text-secondary opacity-50">
                     <i class="fas fa-users-slash fa-4x"></i>

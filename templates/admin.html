@@ -525,15 +525,17 @@
         images: samples
       };
 
-      const res = await fetch('/admin/register_samples', {
+      const res = await fetch('/admin/register_samples/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const d = await res.json();
-      if (d.success) {
-        alert("Registration Complete!");
+      const data = await res.json();
+      if (data.success) {
+        alert('Registered Successfully!');
         window.location.reload();
+      } else {
+        alert('Error: ' + data.message);
       }
     }
 
