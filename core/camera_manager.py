@@ -633,14 +633,51 @@ class CameraManager:
         if len(self.stats["history"]) > 20: 
             self.stats["history"].pop(0)
 
-        # 2. Persist to MongoDB (Suspect Logs)
-        if name == "System" or "Suspect" in relation or name == "Unknown":
-             try:
-                 self.db['suspect_logs'].insert_one(log_entry.copy())
-             except Exception as e:
-                 print(f"DB Log Error: {e}")
+        # 2. Persist to MongoDB (Save ALL logs now)
+        try:
+             self.db['suspect_logs'].insert_one(log_entry.copy())
+        except Exception as e:
+             print(f"DB Log Error: {e}")
 
 
     def get_stats(self):
-        with self.stats_lock:
-            return self.stats
+        # Fetch stats directly from Database for real-time accuracy
+        try:
+            today = datetime.now().strftime("%Y-%m-%d")
+            
+            # Count events for today
+            known_count = self.db['suspect_logs'].count_documents({
+                "date": today,
+                "name": {"$not": {"$regex": "^Unknown"}, "$ne": "System"}
+            })
+            
+            unknown_count = self.db['suspect_logs'].count_documents({
+                "date": today,
+                "name": {"$regex": "^Unknown"}
+            })
+            
+            suspect_count = self.db['suspect_logs'].count_documents({
+                "date": today,
+                "$or": [
+                    {"name": "System"},
+                    {"relation": {"$regex": "Suspect"}}
+                ]
+            })
+            
+            # Update stats object
+            with self.stats_lock:
+                self.stats["known"] = known_count
+                self.stats["unknown"] = unknown_count
+                self.stats["suspects"] = suspect_count
+                
+                # Refresh history from DB to be sure
+                recent_logs = list(self.db['suspect_logs'].find().sort("timestamp", -1).limit(20))
+                for log in recent_logs:
+                    if '_id' in log: del log['_id']
+                    if 'timestamp' in log: del log['timestamp']
+                self.stats["history"] = recent_logs
+                
+        except Exception as e:
+            print(f"Error fetching stats from DB: {e}")
+            
+        return self.stats

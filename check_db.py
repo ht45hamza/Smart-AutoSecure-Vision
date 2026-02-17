@@ -1,10 +1,11 @@
+from pymongo import MongoClient
 from core.config import MONGODB_URI, DATABASE_NAME
 
 try:
     client = MongoClient(MONGODB_URI)
     db = client[DATABASE_NAME]
 
-    print(f"Connected to {DB_NAME}")
+    print(f"Connected to {DATABASE_NAME}")
     print("Collections found:", db.list_collection_names())
     
     # Check counts

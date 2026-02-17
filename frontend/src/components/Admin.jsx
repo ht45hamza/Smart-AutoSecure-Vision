@@ -132,145 +132,140 @@ const Admin = () => {
     };
 
     return (
-        <div className="d-flex h-100 bg-dark-theme font-sans text-light overflow-hidden">
-            <Sidebar activePage="admin" />
+        <>
+            {/* Header */}
+            <div className="d-flex justify-content-between align-items-center p-4 border-bottom border-secondary bg-header">
+                <div>
+                    <h2 className="fw-bold text-heading mb-1">Database Management</h2>
+                    <p className="text-secondary mb-0">Manage known faces and system configuration.</p>
+                </div>
+                <div className="d-flex gap-3">
+                    <button className="btn btn-warning fw-bold px-3 shadow-sm hover-scale" onClick={simulateThreat}>
+                        <i className="fas fa-exclamation-triangle me-2"></i> Test Alert
+                    </button>
+                    <button className="btn btn-success fw-bold px-3 shadow-sm hover-scale text-white" onClick={() => setShowLiveModal(true)}>
+                        <i className="fas fa-camera me-2"></i> Live Register
+                    </button>
+                    <button className="btn btn-primary fw-bold px-3 shadow-primary hover-scale" onClick={() => setShowAddModal(true)}>
+                        <i className="fas fa-upload me-2"></i> Upload Photo
+                    </button>
+                </div>
+            </div>
 
-            {/* Main Content */}
-            <div className="flex-grow-1 d-flex flex-column overflow-hidden">
-                {/* Header */}
-                <div className="d-flex justify-content-between align-items-center p-4 border-bottom border-secondary bg-header">
-                    <div>
-                        <h2 className="fw-bold text-primary mb-1">Database Management</h2>
-                        <p className="text-secondary mb-0">Manage known faces and system configuration.</p>
+            {/* Content Area */}
+            <div className="p-4 overflow-auto custom-scrollbar flex-grow-1">
+
+                {/* Stats Row */}
+                <div className="row g-4 mb-5">
+                    <div className="col-lg-3">
+                        <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
+                            <div>
+                                <h2 className="fw-bold mb-0">{persons.length}</h2>
+                                <p className="text-secondary small text-uppercase mb-0 tracking-wider">Total Persons</p>
+                            </div>
+                            <div className="p-3 rounded-circle bg-primary bg-opacity-10 text-primary">
+                                <i className="fas fa-users fa-2x"></i>
+                            </div>
+                        </div>
                     </div>
-                    <div className="d-flex gap-3">
-                        <button className="btn btn-warning fw-bold px-3 shadow-sm hover-scale" onClick={simulateThreat}>
-                            <i className="fas fa-exclamation-triangle me-2"></i> Test Alert
-                        </button>
-                        <button className="btn btn-outline-success fw-bold px-3 border-secondary text-white hover-bg-light-dark" onClick={() => setShowLiveModal(true)}>
-                            <i className="fas fa-camera me-2 text-success"></i> Live Register
-                        </button>
-                        <button className="btn btn-primary fw-bold px-3 shadow-primary hover-scale" onClick={() => setShowAddModal(true)}>
-                            <i className="fas fa-upload me-2"></i> Upload Photo
-                        </button>
+                    <div className="col-lg-3">
+                        <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
+                            <div>
+                                <h2 className="fw-bold mb-0">{persons.filter(p => p.relation === 'Employee').length}</h2>
+                                <p className="text-secondary small text-uppercase mb-0 tracking-wider">Employees</p>
+                            </div>
+                            <div className="p-3 rounded-circle bg-success bg-opacity-10 text-success">
+                                <i className="fas fa-id-badge fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-lg-3">
+                        <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
+                            <div>
+                                <h2 className="fw-bold mb-0">{persons.filter(p => p.relation.includes('Family')).length}</h2>
+                                <p className="text-secondary small text-uppercase mb-0 tracking-wider">Family Members</p>
+                            </div>
+                            <div className="p-3 rounded-circle bg-info bg-opacity-10 text-info">
+                                <i className="fas fa-home fa-2x"></i>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="col-lg-3">
+                        <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
+                            <div>
+                                <h2 className="fw-bold mb-0">{persons.filter(p => p.relation === 'Visitor' || p.relation === 'Suspect').length}</h2>
+                                <p className="text-secondary small text-uppercase mb-0 tracking-wider">Visitors / Others</p>
+                            </div>
+                            <div className="p-3 rounded-circle bg-warning bg-opacity-10 text-warning">
+                                <i className="fas fa-walking fa-2x"></i>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                {/* Content Area */}
-                <div className="p-4 overflow-auto custom-scrollbar flex-grow-1">
-
-                    {/* Stats Row */}
-                    <div className="row g-4 mb-5">
-                        <div className="col-lg-3">
-                            <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
-                                <div>
-                                    <h2 className="fw-bold mb-0">{persons.length}</h2>
-                                    <p className="text-secondary small text-uppercase mb-0 tracking-wider">Total Persons</p>
-                                </div>
-                                <div className="p-3 rounded-circle bg-primary bg-opacity-10 text-primary">
-                                    <i className="fas fa-users fa-2x"></i>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="col-lg-3">
-                            <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
-                                <div>
-                                    <h2 className="fw-bold mb-0">{persons.filter(p => p.relation === 'Employee').length}</h2>
-                                    <p className="text-secondary small text-uppercase mb-0 tracking-wider">Employees</p>
-                                </div>
-                                <div className="p-3 rounded-circle bg-success bg-opacity-10 text-success">
-                                    <i className="fas fa-id-badge fa-2x"></i>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="col-lg-3">
-                            <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
-                                <div>
-                                    <h2 className="fw-bold mb-0">{persons.filter(p => p.relation.includes('Family')).length}</h2>
-                                    <p className="text-secondary small text-uppercase mb-0 tracking-wider">Family Members</p>
-                                </div>
-                                <div className="p-3 rounded-circle bg-info bg-opacity-10 text-info">
-                                    <i className="fas fa-home fa-2x"></i>
-                                </div>
-                            </div>
-                        </div>
-                        <div className="col-lg-3">
-                            <div className="stat-card border-secondary bg-panel p-4 d-flex justify-content-between align-items-center rounded-3 shadow-sm hover-elevate">
-                                <div>
-                                    <h2 className="fw-bold mb-0">{persons.filter(p => p.relation === 'Visitor' || p.relation === 'Suspect').length}</h2>
-                                    <p className="text-secondary small text-uppercase mb-0 tracking-wider">Visitors / Others</p>
-                                </div>
-                                <div className="p-3 rounded-circle bg-warning bg-opacity-10 text-warning">
-                                    <i className="fas fa-walking fa-2x"></i>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Persons Grid */}
-                    <div className="row g-4">
-                        {persons.map(p => (
-                            <div className="col-xl-3 col-lg-4 col-md-6" key={p._id || p.serial_no}>
-                                <div className="card h-100 bg-panel border-secondary shadow-sm overflow-hidden hover-border-primary transition-all">
-                                    <div className="position-relative" style={{ height: '240px' }}>
-                                        <img
-                                            src={p.image ? p.image : (p.photo ? `/static/uploads/${p.photo}` : '/static/default_avatar.png')}
-                                            className="w-100 h-100 object-fit-cover"
-                                            alt={p.name}
-                                            onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/300?text=No+Image'; }}
-                                        />
-                                        <div className="position-absolute bottom-0 start-0 w-100 p-3 bg-gradient-to-t from-black to-transparent">
-                                            <h5 className="fw-bold text-white mb-0 text-shadow">{p.name}</h5>
-                                            <small className="text-light opacity-75">{p.relation}</small>
-                                        </div>
-                                        {/* Blue Check for Verified/Employees */}
-                                        <div className="position-absolute bottom-0 end-0 m-3">
-                                            <span className="badge rounded-circle bg-primary p-2 shadow-sm">
-                                                <i className="fas fa-check"></i>
-                                            </span>
-                                        </div>
+                {/* Persons Grid */}
+                <div className="row g-4 animate-fade-in">
+                    {persons.map(p => (
+                        <div className="col-xl-3 col-lg-4 col-md-6" key={p._id || p.serial_no}>
+                            <div className="card h-100 bg-panel border-secondary shadow-sm overflow-hidden hover-border-primary transition-all group">
+                                <div className="position-relative" style={{ height: '240px' }}>
+                                    <img
+                                        src={p.image ? p.image : (p.photo ? `/static/uploads/${p.photo}` : '/static/default_avatar.png')}
+                                        className="w-100 h-100 object-fit-cover transition-transform group-hover-scale-110"
+                                        alt={p.name}
+                                        onError={(e) => { e.target.onerror = null; e.target.src = 'https://via.placeholder.com/300?text=No+Image'; }}
+                                    />
+                                    <div className="position-absolute bottom-0 start-0 w-100 p-3 bg-gradient-to-t from-black to-transparent">
+                                        <h5 className="fw-bold text-white mb-0 text-shadow">{p.name}</h5>
+                                        <small className="text-light opacity-75">{p.relation}</small>
                                     </div>
-                                    <div className="card-body bg-panel border-top border-secondary p-3">
-                                        <div className="mb-2 d-flex align-items-center text-secondary small">
-                                            <i className="fas fa-phone-alt me-3 opacity-50" style={{ width: 16 }}></i>
-                                            <span>{p.phone || '+00 000 0000000'}</span>
-                                        </div>
-                                        <div className="mb-2 d-flex align-items-center text-secondary small">
-                                            <i className="fas fa-map-marker-alt me-3 opacity-50" style={{ width: 16 }}></i>
-                                            <span className="text-truncate">{p.address || 'No Address'}</span>
-                                        </div>
-                                        <div className="d-flex align-items-center text-secondary small">
-                                            <i className="fas fa-clock me-3 opacity-50" style={{ width: 16 }}></i>
-                                            <span>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</span>
-                                        </div>
-                                    </div>
-                                    <div className="p-2 border-top border-secondary bg-dark bg-opacity-25 d-flex gap-2">
-                                        <button
-                                            className="btn btn-sm btn-outline-light flex-grow-1 border-secondary text-secondary hover-text-white"
-                                            onClick={() => handleEdit(p)}
-                                        >
-                                            <i className="fas fa-edit me-2"></i> Edit
-                                        </button>
-                                        <button
-                                            className="btn btn-sm btn-outline-danger border-secondary bg-danger bg-opacity-10"
-                                            onClick={() => handleDelete(p)}
-                                        >
-                                            <i className="fas fa-trash-alt"></i>
-                                        </button>
+                                    {/* Blue Check for Verified/Employees */}
+                                    <div className="position-absolute bottom-0 end-0 m-3">
+                                        <span className="badge rounded-circle bg-primary p-2 shadow-sm">
+                                            <i className="fas fa-check"></i>
+                                        </span>
                                     </div>
                                 </div>
+                                <div className="card-body bg-panel border-top border-secondary p-3">
+                                    <div className="mb-2 d-flex align-items-center text-secondary small">
+                                        <i className="fas fa-phone-alt me-3 opacity-50" style={{ width: 16 }}></i>
+                                        <span>{p.phone || '+00 000 0000000'}</span>
+                                    </div>
+                                    <div className="mb-2 d-flex align-items-center text-secondary small">
+                                        <i className="fas fa-map-marker-alt me-3 opacity-50" style={{ width: 16 }}></i>
+                                        <span className="text-truncate">{p.address || 'No Address'}</span>
+                                    </div>
+                                    <div className="d-flex align-items-center text-secondary small">
+                                        <i className="fas fa-clock me-3 opacity-50" style={{ width: 16 }}></i>
+                                        <span>{p.created_at ? new Date(p.created_at).toLocaleDateString() : 'N/A'}</span>
+                                    </div>
+                                </div>
+                                <div className="p-2 border-top border-secondary bg-dark bg-opacity-25 d-flex gap-2">
+                                    <button
+                                        className="btn btn-sm btn-outline-light flex-grow-1 border-secondary text-secondary hover-text-white"
+                                        onClick={() => handleEdit(p)}
+                                    >
+                                        <i className="fas fa-edit me-2"></i> Edit
+                                    </button>
+                                    <button
+                                        className="btn btn-sm btn-outline-danger border-secondary bg-danger bg-opacity-10 text-danger hover-bg-danger hover-text-white"
+                                        onClick={() => handleDelete(p)}
+                                    >
+                                        <i className="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
                             </div>
-                        ))}
-                        {persons.length === 0 && (
-                            <div className="col-12 text-center py-5 text-secondary opacity-50 border border-dashed border-secondary rounded-3">
-                                <i className="fas fa-folder-open fa-3x mb-3"></i>
-                                <h5>No Records Found</h5>
-                                <p>Start by registering a new person</p>
-                            </div>
-                        )}
-                    </div>
-
+                        </div>
+                    ))}
+                    {persons.length === 0 && (
+                        <div className="col-12 text-center py-5 text-secondary opacity-50 border border-dashed border-secondary rounded-3">
+                            <i className="fas fa-folder-open fa-3x mb-3"></i>
+                            <h5>No Records Found</h5>
+                            <p>Start by registering a new person</p>
+                        </div>
+                    )}
                 </div>
+
             </div>
 
             {/* Live Modal */}
@@ -440,7 +435,7 @@ const Admin = () => {
                     </div>
                 </div>
             )}
-        </div>
+        </>
     );
 };
 
