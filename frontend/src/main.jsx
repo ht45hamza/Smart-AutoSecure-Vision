@@ -1,5 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import './index.css';
 import Dashboard from './components/Dashboard'
 import Admin from './components/Admin'
 import Logs from './components/Logs'

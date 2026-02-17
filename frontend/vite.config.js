@@ -26,13 +26,13 @@ export default defineConfig({
         port: 5175,
 
         proxy: {
-            '/api': 'http://127.0.0.1:5000',
-            '/admin': 'http://127.0.0.1:5000',
-            '/static': 'http://127.0.0.1:5000',
-            '/cameras': 'http://127.0.0.1:5000',
-            '/video_feed': 'http://127.0.0.1:5000',
-            '/add_camera': 'http://127.0.0.1:5000',
-            '/set_main': 'http://127.0.0.1:5000',
+            '/api': 'http://127.0.0.1:8000',
+            '/admin': 'http://127.0.0.1:8000',
+            '/static': 'http://127.0.0.1:8000',
+            '/cameras': 'http://127.0.0.1:8000',
+            '/video_feed': 'http://127.0.0.1:8000',
+            '/add_camera': 'http://127.0.0.1:8000',
+            '/set_main': 'http://127.0.0.1:8000',
         }
 
     }
