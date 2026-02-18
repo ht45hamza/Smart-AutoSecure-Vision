@@ -43,4 +43,5 @@ urlpatterns = [
     path('api/register/', views.api_register, name='api_register'),
     path('api/add_contact/', views.api_add_contact, name='api_add_contact'),
     path('api/delete_contact/<contact_id>/', views.api_delete_contact, name='api_delete_contact'),
+    path('api/delete_log/<str:log_id>/', views.api_delete_log, name='api_delete_log'),
 ]

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { fetchLogs } from '../api';
+import { fetchLogs, deleteLog } from '../api';
 import Sidebar from './Sidebar';
 
 const Logs = () => {
@@ -23,7 +23,7 @@ const Logs = () => {
                     let type = 'Info';
 
                     if (log.name === 'System') {
-                        if (log.action.toLowerCase().includes('weapon')) {
+                        if (log.action && log.action.toLowerCase().includes('weapon')) {
                             severity = 'Critical';
                             type = 'Weapon';
                         } else {
@@ -47,6 +47,50 @@ const Logs = () => {
         } catch (e) {
             console.error(e);
         }
+    };
+
+    const handleDeleteLog = async (id) => {
+        if (!window.confirm("Are you sure you want to mark this as False Positive? This will remove the log.")) return;
+        try {
+            await deleteLog(id);
+            setLogs(prev => prev.filter(l => l._id !== id));
+            setSelectedLog(null);
+        } catch (e) {
+            alert("Failed to delete log");
+        }
+    };
+
+    const exportLogs = (dataToExport, filename = 'security_report') => {
+        if (!dataToExport || dataToExport.length === 0) {
+            alert("No data to export");
+            return;
+        }
+
+        const headers = ["Timestamp", "Date", "Time", "Name", "Relation", "Action", "Type", "Severity"];
+
+        const csvContent = [
+            headers.join(','),
+            ...dataToExport.map(row => [
+                row.timestamp || '',
+                row.date || '',
+                row.time || '',
+                `"${row.name || ''}"`,
+                row.relation || '',
+                `"${row.action || ''}"`,
+                row.type || '',
+                row.severity || ''
+            ].join(','))
+        ].join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${filename}_${new Date().toISOString().slice(0, 10)}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
 
     const getSeverityBadge = (level) => {
@@ -79,6 +123,13 @@ const Logs = () => {
                                 {f}
                             </button>
                         ))}
+                        <button
+                            className="btn btn-sm btn-outline-light ms-2 d-flex align-items-center gap-2"
+                            onClick={() => exportLogs(logs, 'full_report')}
+                            title="Export All Logs"
+                        >
+                            <i className="fas fa-file-csv"></i> Export All
+                        </button>
                         <button className="btn btn-sm btn-outline-light ms-2" onClick={loadLogs}>
                             <i className="fas fa-sync"></i>
                         </button>
@@ -209,11 +260,17 @@ const Logs = () => {
                                                         <i className="fas fa-bell me-2"></i> Trigger Alarm
                                                     </button>
                                                 )}
-                                                <button className="btn btn-outline-light border-secondary hover-bg-white-10">
+                                                <button
+                                                    className="btn btn-outline-light border-secondary hover-bg-white-10"
+                                                    onClick={() => exportLogs([selectedLog], `log_${selectedLog.name}`)}
+                                                >
                                                     <i className="fas fa-share-square me-2"></i> Export Report
                                                 </button>
-                                                <button className="btn btn-outline-warning border-warning text-warning hover-bg-warning-10">
-                                                    <i className="fas fa-user-secret me-2"></i> Mark as False Positive
+                                                <button
+                                                    className="btn btn-danger-soft fw-medium"
+                                                    onClick={() => handleDeleteLog(selectedLog._id)}
+                                                >
+                                                    <i className="fas fa-trash-alt me-2"></i> Mark as False Positive / Remove
                                                 </button>
                                             </div>
                                         </div>

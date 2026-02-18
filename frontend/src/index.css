@@ -118,8 +118,8 @@ body {
 }
 
 .btn-primary:hover {
-  filter: brightness(110%);
-  box-shadow: 0 0 15px rgba(59, 130, 246, 0.4);
+  background-color: #2563eb;
+  border-color: #2563eb;
 }
 
 .card {
@@ -151,8 +151,7 @@ body {
 }
 
 .hover-elevate:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 10px 20px var(--shadow-color);
+  transform: translateY(-2px);
   transition: all 0.3s;
 }
 
@@ -257,8 +256,7 @@ body {
 }
 
 .stat-card-enhanced:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 15px 30px var(--shadow-color);
+  transform: translateY(-2px);
   border-color: var(--accent-primary);
 }
 
@@ -299,4 +297,51 @@ body {
 /* Global utility specifically for text within cards/dark areas if needed */
 .text-white-adaptive {
   color: var(--text-primary) !important;
+}
+
+.op-90 {
+  opacity: 0.9;
+}
+
+.hover-op-100:hover {
+  opacity: 1 !important;
+}
+
+.z-20 {
+  z-index: 20 !important;
+}
+
+.cursor-pointer {
+  cursor: pointer;
+}
+
+/* Remove button focus outlines */
+button:focus,
+.btn:focus,
+.btn:active:focus,
+.btn-check:focus+.btn,
+.btn-check:active+.btn {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure no glow on active state either */
+.btn-primary:active,
+.btn-primary:focus {
+  background-color: var(--accent-primary) !important;
+  border-color: var(--accent-primary) !important;
+  box-shadow: none !important;
+}
+
+.btn-danger-soft {
+  color: #ef4444 !important;
+  border-color: rgba(239, 68, 68, 0.5) !important;
+  background-color: rgba(239, 68, 68, 0.05);
+  transition: all 0.2s;
+}
+
+.btn-danger-soft:hover {
+  background-color: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #ef4444 !important;
 }

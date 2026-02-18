@@ -27,24 +27,36 @@ main_camera_id = None
 lock = threading.Lock()
 
 # DB Config
+# DB Config
+import certifi
+
 try:
-    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
-    # client.admin.command('ping') 
-    print("Connected to MongoDB (Primary)")
+    print("Attempting to connect to MongoDB Atlas...")
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000, tlsCAFile=certifi.where())
+    client.admin.command('ping') 
+    print("Connected to MongoDB (Primary - Certifi)")
     db = client[DATABASE_NAME]
     persons = db[COLLECTION_NAME]
 except (ConfigurationError, ConnectionFailure, ServerSelectionTimeoutError) as e:
-    print(f"Warning: Could not connect to primary MongoDB ({e}). Trying Localhost...")
+    print(f"Warning: Primary connection failed ({e}). Trying Unverified SSL...")
     try:
-        client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=3000, tls=True, tlsAllowInvalidCertificates=True)
         client.admin.command('ping')
-        print("Connected to MongoDB (Localhost)")
+        print("Connected to MongoDB (Atlas - Unverified SSL)")
         db = client[DATABASE_NAME]
         persons = db[COLLECTION_NAME]
-    except Exception as e2:
-        print(f"Info: Localhost MongoDB not available. Using Built-in Local Storage (json_db).")
-        db = JsonDB("smart_vision") 
-        persons = db[COLLECTION_NAME]
+    except Exception as e_ssl:
+        print(f"Warning: SSL connection failed ({e_ssl}). Trying Localhost...")
+        try:
+             client = MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+             client.admin.command('ping')
+             print("Connected to MongoDB (Localhost)")
+             db = client[DATABASE_NAME]
+             persons = db[COLLECTION_NAME]
+        except Exception as e2:
+             print(f"Info: Localhost MongoDB not available. Using Built-in Local Storage (json_db).")
+             db = JsonDB("smart_vision") 
+             persons = db[COLLECTION_NAME]
 
 # App Config Shim
 class AppConfig:
@@ -157,7 +169,10 @@ def add_camera(request):
                      return JsonResponse({'success': False, 'message': 'Cannot open camera/stream - Check connection'})
 
                 # Only assign callback if stream is valid
-                stream.process_callback = lambda f: camera_manager.process_frame(f, device_id, stream.roi_mask)
+                stream.set_pipeline(
+                    detector=camera_manager.detect_task,
+                    drawer=camera_manager.draw_task
+                )
 
                 cameras[device_id] = {'stream': stream, 'label': data['label'], 'main': False}
                 if main_camera_id is None:
@@ -547,3 +562,18 @@ def get_logs_api(request):
     except:
         logs = []
     return JsonResponse(logs, safe=False)
+
+@csrf_exempt
+def api_delete_log(request, log_id):
+    if request.method == 'DELETE':
+        try:
+            result = db['suspect_logs'].delete_one({'_id': ObjectId(log_id)})
+            if result.deleted_count > 0:
+                # Also remove from memory history if needed, but CameraManager usually re-reads or appends.
+                # However, get_stats() returns history from memory. We might need to sync.
+                # For now, just DB deletion. The frontend re-fetches or updates local state.
+                return JsonResponse({'success': True})
+            return JsonResponse({'success': False, 'message': 'Log not found'})
+        except Exception as e:
+            return JsonResponse({'success': False, 'message': str(e)})
+    return JsonResponse({'error': 'DELETE required'}, status=400)
