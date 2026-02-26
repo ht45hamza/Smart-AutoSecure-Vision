@@ -129,3 +129,10 @@ export const fetchLogs = async () => {
     const res = await fetch(`${API_BASE}/api/logs/`);
     return res.json();
 };
+
+export const deleteLog = async (id) => {
+    const res = await fetch(`${API_BASE}/api/delete_log/${id}/`, {
+        method: 'DELETE'
+    });
+    return res.json();
+};

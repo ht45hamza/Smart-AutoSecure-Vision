@@ -8,12 +8,20 @@ const ROImodal = ({ cameraId, onClose }) => {
     const [points, setPoints] = useState([]);
     const [isDrawing, setIsDrawing] = useState(false);
 
+    const [feedTimestamp] = useState(Date.now());
+
+    // ...
+
     // Reset when camera changes
     useEffect(() => {
         if (cameraId) {
             clearRoi();
         }
     }, [cameraId]);
+
+    // ...
+
+
 
     const clearRoi = () => {
         const ctx = canvasRef.current?.getContext('2d');
@@ -134,33 +142,54 @@ const ROImodal = ({ cameraId, onClose }) => {
     };
 
     const handleSave = async () => {
-        if (points.length === 0) return;
+        if (!points || points.length === 0) return;
+        if (!canvasRef.current || !imgRef.current) return;
 
-        // Normalize points 0..1
-        const w = canvasRef.current.width;
-        const h = canvasRef.current.height;
-        let normPoints = [];
+        const w = parseFloat(canvasRef.current.width);
+        const h = parseFloat(canvasRef.current.height);
+
+        let roiData = {};
 
         if (tool === 'rect') {
-            // x, y, w, h
+            // [x, y, w, h]
             let [x, y, rw, rh] = points;
+            // Normalize negative dimensions
             if (rw < 0) { x += rw; rw = Math.abs(rw); }
             if (rh < 0) { y += rh; rh = Math.abs(rh); }
-            normPoints = [x / w, y / h, rw / w, rh / h];
+
+            // Normalize to 0..1
+            roiData = {
+                type: 'rect',
+                points: [x / w, y / h, rw / w, rh / h]
+            };
         } else if (tool === 'circle') {
-            normPoints = [points[0] / w, points[1] / h, points[2] / w];
-        } else {
-            normPoints = points.map(p => [p[0] / w, p[1] / h]);
+            // [x, y, r]
+            // Radius normalization is tricky. Usually relative to width or max dim.
+            // Let's assume normalized to width for now, or just send relative val.
+            // Backend likely expects standard relative coords.
+            roiData = {
+                type: 'circle',
+                points: [points[0] / w, points[1] / h, points[2] / w]
+            };
+        } else if (tool === 'poly' || tool === 'freehand') {
+            // [[x,y], [x,y]...]
+            const normalized = points.map(p => [p[0] / w, p[1] / h]);
+            roiData = {
+                type: 'poly', // Backend likely treats freehand as poly
+                points: normalized
+            };
         }
 
         try {
+            console.log("Saving ROI:", roiData); // Debug
             await setRoi({
                 id: cameraId,
-                roi: { type: tool, points: normPoints }
+                roi: roiData
             });
             onClose();
         } catch (e) {
-            alert("Failed to save ROI");
+            console.error(e);
+            alert("Failed to save ROI. Check console.");
         }
     };
 
@@ -231,7 +260,7 @@ const ROImodal = ({ cameraId, onClose }) => {
                             <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', maxHeight: '80vh' }}>
                                 <img
                                     ref={imgRef}
-                                    src={cameraId !== null ? `/video_feed/${cameraId}?t=${Date.now()}` : ''}
+                                    src={cameraId !== null ? `/video_feed/${cameraId}?t=${feedTimestamp}` : ''}
                                     style={{ display: 'block', maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain' }}
                                     onLoad={handleImgLoad}
                                     draggable="false"
