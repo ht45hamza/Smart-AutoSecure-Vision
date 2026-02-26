@@ -1,15 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { fetchAddedCameras, setMainCamera, fetchStats, fetchEmergencyStatus, addCamera, fetchCameras } from '../api';
 import ROImodal from './ROImodal';
-import Sidebar from './Sidebar';
-import Logs from './Logs';
-import Contacts from './Contacts';
-import Admin from './Admin';
-import Help from './Help';
-import About from './About';
-import Settings from './Settings';
 
-const DashboardContent = ({ onNavigate }) => {
+const Dashboard = () => {
     const [cameras, setCameras] = useState([]);
     const [mainCameraId, setMainCameraId] = useState(null);
     const [stats, setStats] = useState({ known: 0, unknown: 0, suspects: 0, history: [] });
@@ -214,12 +207,25 @@ const DashboardContent = ({ onNavigate }) => {
                                         <i className="fas fa-video-slash fa-3x mb-3 opacity-50"></i>
                                         <h6>NO SIGNAL</h6>
                                     </div>
-                                )}
-                            </div>
+                                    <button
+                                        className="btn btn-dark btn-sm position-absolute top-0 end-0 m-3 border-secondary"
+                                        onClick={() => openRoi(mainCameraId)}
+                                    >
+                                        <i className="fas fa-crop-alt me-2"></i> Edit ROI
+                                    </button>
+                                    {/* ROI Guidelines Simulation */}
+                                    <div className="roi-overlay"></div>
+                                </>
+                            ) : (
+                                <div className="h-100 d-flex flex-column align-items-center justify-content-center text-secondary">
+                                    <i className="fas fa-video-slash fa-3x mb-3 opacity-50"></i>
+                                    <h6>NO SIGNAL</h6>
+                                </div>
+                            )}
                         </div>
 
                         {/* Camera Grid */}
-                        <div className="camera-grid-row d-flex gap-3 overflow-x-auto pb-2 custom-scrollbar" style={{ height: '120px' }}>
+                        <div className="camera-grid-row d-flex gap-3 overflow-x-auto pb-2" style={{ height: '140px' }}>
                             {cameras.map(cam => (
                                 <div
                                     key={cam.id}
@@ -251,9 +257,9 @@ const DashboardContent = ({ onNavigate }) => {
                         </button>
                         <div className="recent-activity-panel bg-activity rounded-3 border border-dark-subtle d-flex flex-column flex-grow-1 overflow-hidden mt-2" style={{ height: '400px', maxHeight: '100%' }}>
                             <div className="p-3 border-bottom border-secondary bg-dark-header">
-                                <h6 className="fw-bold mb-0 text-heading"><i className="fas fa-history me-2 text-secondary"></i> Recent Activity</h6>
+                                <h6 className="fw-bold mb-0"><i className="fas fa-history me-2 text-secondary"></i> Recent Activity</h6>
                             </div>
-                            <div className="flex-grow-1 overflow-y-auto p-2 custom-scrollbar">
+                            <div className="flex-grow-1 overflow-y-auto p-2 scrollbar-thin">
                                 {stats.history && stats.history.length > 0 ? (
                                     stats.history.slice().reverse().map((item, idx) => (
                                         <div
