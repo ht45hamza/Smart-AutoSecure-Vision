@@ -28,7 +28,7 @@ python db_setup_atlas.py
 
 REM 5. Start Backend (Flask/Django)
 echo Starting Backend Server...
-start "Backend Server" python app.py
+start "Backend Server" python manage.py runserver
 
 REM 6. Start Frontend
 echo Starting Frontend...
@@ -37,8 +37,8 @@ start "Frontend Server" npm run dev
 
 echo.
 echo Project is running!
-echo Backend: http://localhost:5000
-echo Frontend: http://localhost:5173
+echo Backend: http://localhost:8000
+echo Frontend: http://localhost:5175
 echo.
 pause
 

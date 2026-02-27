@@ -1,0 +1,16 @@
+
+> smart-autosecure-vision-frontend@0.0.0 build
+> vite build
+
+[36mvite v5.4.21 [32mbuilding for production...[36m[39m
+transforming...
+[32m✓[39m 40 modules transformed.
+[1m[33m[plugin:vite:reporter][39m[22m [33m[plugin vite:reporter] 
+(!) D:/FINAL-PROJECT/smart autosecure vision/frontend/src/api.js is dynamically imported by D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Contacts.jsx but also statically imported by D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Admin.jsx, D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Contacts.jsx, D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Dashboard.jsx, D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Login.jsx, D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/Logs.jsx, D:/FINAL-PROJECT/smart autosecure vision/frontend/src/components/ROImodal.jsx, dynamic import will not move module into another chunk.
+[39m
+rendering chunks...
+computing gzip size...
+[2m../static/dist/[22m[32m.vite/manifest.json  [39m[1m[2m  0.17 kB[22m[1m[22m[2m │ gzip:  0.12 kB[22m
+[2m../static/dist/[22m[35massets/main.css      [39m[1m[2m  5.35 kB[22m[1m[22m[2m │ gzip:  1.65 kB[22m
+[2m../static/dist/[22m[36massets/main.js       [39m[1m[2m215.51 kB[22m[1m[22m[2m │ gzip: 61.50 kB[22m
+[32m✓ built in 1.87s[39m
