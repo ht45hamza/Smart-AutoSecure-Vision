@@ -1,5 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
+import './index.css';
+import App from './App'
 import Dashboard from './components/Dashboard'
 import Admin from './components/Admin'
 import Logs from './components/Logs'
@@ -20,7 +22,7 @@ const mount = (id, Component) => {
 };
 
 // Mount points
-mount('dashboard-root', Dashboard);
+mount('dashboard-root', App); // Uses updated App container for Login flow
 mount('admin-root', Admin);
 mount('logs-root', Logs);
 mount('contacts-root', Contacts);

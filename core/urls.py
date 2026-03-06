@@ -41,6 +41,9 @@ urlpatterns = [
     # React / REST API
     path('api/login/', views.api_login, name='api_login'),
     path('api/register/', views.api_register, name='api_register'),
+    path('api/verify_email/', views.api_verify_email, name='api_verify_email'),
+    path('api/google_login/', views.api_google_login, name='api_google_login'),
+    path('api/forgot_password/', views.api_forgot_password, name='api_forgot_password'),
     path('api/add_contact/', views.api_add_contact, name='api_add_contact'),
     path('api/delete_contact/<contact_id>/', views.api_delete_contact, name='api_delete_contact'),
     path('api/delete_log/<str:log_id>/', views.api_delete_log, name='api_delete_log'),

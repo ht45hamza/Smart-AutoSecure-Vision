@@ -24,8 +24,8 @@ class AuthManager:
         # Assuming user will provide or we use a console logger for now
         self.smtp_server = "smtp.gmail.com"
         self.smtp_port = 587
-        self.smtp_user = "security.alert.system.demo@gmail.com"
-        self.smtp_pass = "app_password_here" 
+        self.smtp_user = "chatgptpro32123@gmail.com"
+        self.smtp_pass = "wucgzztvrdnnzpmy" 
 
     def get_user_by_id(self, user_id):
         from bson.objectid import ObjectId
@@ -39,21 +39,35 @@ class AuthManager:
         return None
 
     def register_user(self, name, email, password):
-        if self.users.find_one({"email": email}):
-            return False, "Email already registered"
-        
+        user_data = self.users.find_one({"email": email})
         otp = str(random.randint(100000, 999999))
         hashed_password = generate_password_hash(password)
-        
-        user_id = self.users.insert_one({
-            "name": name,
-            "email": email,
-            "password": hashed_password,
-            "is_verified": False, # Requires Email Verification
-            "otp": otp,
-            "otp_time": time.time(),
-            "created_at": time.time()
-        }).inserted_id
+
+        if user_data:
+            if user_data.get('is_verified', False):
+                return False, "Email already registered and verified."
+            else:
+                # Update existing unverified user
+                self.users.update_one(
+                    {"email": email},
+                    {"$set": {
+                        "name": name,
+                        "password": hashed_password,
+                        "otp": otp,
+                        "otp_time": time.time()
+                    }}
+                )
+        else:
+            # Create new user
+            self.users.insert_one({
+                "name": name,
+                "email": email,
+                "password": hashed_password,
+                "is_verified": False,
+                "otp": otp,
+                "otp_time": time.time(),
+                "created_at": time.time()
+            })
         
         self.send_otp_email(email, otp)
         return True, "Registration successful. Please verify your email."
@@ -100,18 +114,41 @@ class AuthManager:
             return True, "Password reset successful"
         return False, "Invalid OTP"
 
+    def login_google_user(self, email, name):
+        user_data = self.users.find_one({"email": email})
+        
+        if not user_data:
+            # Register new Google user implicitly
+            user_id = self.users.insert_one({
+                "name": name,
+                "email": email,
+                "password": "", # No password needed for Google Auth
+                "is_verified": True, # Implicitly verified
+                "otp": None,
+                "created_at": time.time()
+            }).inserted_id
+            
+            user_data = self.users.find_one({"_id": user_id})
+            
+        return User(user_data), "Success"
+
     def send_otp_email(self, to_email, otp, subject="Your Verification Code"):
         # For demonstration without valid SMTP creds, we PRINT the OTP
         print(f"\n[EMAIL MOCK] To: {to_email} | Subject: {subject} | Body: Your OTP is {otp}\n")
         
-        # Real Implementation (Commented out to prevent crash without creds)
-        """
         try:
             msg = MIMEMultipart()
-            msg['From'] = self.smtp_user
+            msg['From'] = f"Smart AutoSecure Vision <{self.smtp_user}>"
             msg['To'] = to_email
             msg['Subject'] = subject
-            body = f"Hello,\n\nYour security code is: {otp}\n\nValid for 10 minutes."
+            body = (
+                f"Hello,\n\n"
+                f"Thank you for using Smart AutoSecure Vision.\n\n"
+                f"Your security code is: {otp}\n\n"
+                f"This code is valid for 10 minutes. Please do not share it with anyone.\n\n"
+                f"Best regards,\n"
+                f"Smart AutoSecure Vision Team"
+            )
             msg.attach(MIMEText(body, 'plain'))
             
             server = smtplib.SMTP(self.smtp_server, self.smtp_port)
@@ -122,4 +159,3 @@ class AuthManager:
             server.quit()
         except Exception as e:
             print(f"SMTP Error: {e}")
-        """

@@ -418,7 +418,7 @@ const Dashboard = () => {
     );
 };
 
-const Dashboard = () => {
+const Dashboard = ({ user, onLogout }) => {
     const [activeView, setActiveView] = useState('dashboard');
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [theme, setTheme] = useState(localStorage.getItem('theme') || 'dark');
@@ -470,7 +470,15 @@ const Dashboard = () => {
                             <div className="vr mx-2 bg-secondary opacity-25"></div>
                             <button className="btn btn-link p-0 text-secondary text-decoration-none hover-text-primary small" onClick={() => setActiveView('about')}>About</button>
                             <button className="btn btn-link p-0 text-secondary text-decoration-none hover-text-primary small" onClick={() => setActiveView('help')}>Help</button>
-                            <button className="btn btn-link p-0 text-secondary text-decoration-none hover-text-primary small" onClick={() => window.showComponent ? window.showComponent('login') : window.location.href = '/login'}>Logout</button>
+                            <button className="btn btn-link p-0 text-secondary text-decoration-none hover-text-primary small" onClick={() => {
+                                if (onLogout) {
+                                    onLogout();
+                                } else if (window.showComponent) {
+                                    window.showComponent('login');
+                                } else {
+                                    window.location.href = '/login';
+                                }
+                            }}>Logout</button>
                         </div>
                         <div className="border-start border-dark-subtle ps-3 text-light fw-bold font-monospace small">
                             {new Date().toLocaleTimeString()}

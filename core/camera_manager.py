@@ -13,9 +13,10 @@ import torch
 from .emergency_manager import EmergencyManager
 
 class CameraStream:
-    def __init__(self, src, name):
+    def __init__(self, src, name, owner_email='unknown'):
         self.src = src
         self.name = name
+        self.owner_email = owner_email
         
         # Initialize Stream
         self.stream = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
@@ -196,7 +197,8 @@ class CameraManager:
 
         self.known_face_encodings = []
         self.known_face_names = []
-        self.known_face_relations = [] # To store relation (e.g. employee, family)
+        self.known_face_relations = []
+        self.known_face_owners = []
         
         # Stats
         self.stats = {
@@ -210,7 +212,7 @@ class CameraManager:
         
         # Hydrate stats from DB
         try:
-            recent_logs = list(self.db['suspect_logs'].find().sort("timestamp", -1).limit(20))
+            recent_logs = list(self.db['suspect_logs'].find({"owner_email": owner_email}).sort("timestamp", -1).limit(20))
             for log in recent_logs:
                 if '_id' in log: del log['_id'] 
                 if 'timestamp' in log: del log['timestamp']
@@ -301,6 +303,7 @@ class CameraManager:
                              self.known_face_encodings.append(enc)
                              self.known_face_names.append(person['name'])
                              self.known_face_relations.append(person['relation'])
+                             self.known_face_owners.append(person.get('owner_email', 'unknown'))
                              encodings_found += 1
             
             # Single File
@@ -311,6 +314,7 @@ class CameraManager:
                     self.known_face_encodings.append(enc)
                     self.known_face_names.append(person['name'])
                     self.known_face_relations.append(person['relation'])
+                    self.known_face_owners.append(person.get('owner_email', 'unknown'))
 
         self._save_cache(new_cache)
         print(f"Loaded {len(self.known_face_names)} faces.")
@@ -344,18 +348,20 @@ class CameraManager:
                 self.known_face_encodings.append(enc)
                 self.known_face_names.append(person_data['name'])
                 self.known_face_relations.append(person_data['relation'])
+                self.known_face_owners.append(person_data.get('owner_email', 'unknown'))
 
-    def remove_person_from_memory(self, name):
+    def remove_person_from_memory(self, name, owner_email='unknown'):
         """Incrementally removes a person from memory by name."""
-        indices_to_remove = [i for i, n in enumerate(self.known_face_names) if n == name]
+        indices_to_remove = [i for i, n in enumerate(self.known_face_names) if n == name and self.known_face_owners[i] == owner_email]
         for index in sorted(indices_to_remove, reverse=True):
             del self.known_face_encodings[index]
             del self.known_face_names[index]
             del self.known_face_relations[index]
+            del self.known_face_owners[index]
 
     # --- NEW ARCHITECTURE METHODS ---
     
-    def detect_task(self, frame, roi_mask=None):
+    def detect_task(self, frame, roi_mask=None, owner_email='unknown'):
         """Task that runs detection and returns overlays (runs in BG thread)"""
         # Apply ROI ONLY for detection
         detect_frame = frame
@@ -364,7 +370,7 @@ class CameraManager:
                 detect_frame = cv2.bitwise_and(frame, frame, mask=roi_mask)
             except: pass
             
-        return self._detect_faces_and_objects(detect_frame)
+        return self._detect_faces_and_objects(detect_frame, owner_email)
 
     def draw_task(self, frame, overlays, roi_mask=None):
         """Task that draws overlays on the frame (runs in Main Stream thread)"""
@@ -376,7 +382,7 @@ class CameraManager:
             
         return frame
 
-    def _detect_faces_and_objects(self, frame):
+    def _detect_faces_and_objects(self, frame, owner_email='unknown'):
         """Runs heavy AI detection and returns list of overlay data"""
         overlays = []
         
@@ -399,8 +405,14 @@ class CameraManager:
 
             face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
             if len(face_distances) > 0:
-                best_match_index = np.argmin(face_distances)
-                if matches[best_match_index]:
+                best_match_index = -1
+                best_distance = 999
+                for i, d in enumerate(face_distances):
+                    if self.known_face_owners[i] == owner_email and d < 0.55:
+                        if d < best_distance:
+                            best_distance = d
+                            best_match_index = i
+                if best_match_index != -1:
                     name = self.known_face_names[best_match_index]
                     relation = self.known_face_relations[best_match_index]
             
@@ -420,6 +432,7 @@ class CameraManager:
                         cv2.imwrite(save_path, face_img_save)
                         
                         self.persons.insert_one({
+                            "owner_email": owner_email,
                             "serial_no": 9000 + self.auto_id_counter,
                             "name": new_name,
                             "relation": relation,
@@ -431,6 +444,7 @@ class CameraManager:
                         self.known_face_encodings.append(face_encoding)
                         self.known_face_names.append(new_name)
                         self.known_face_relations.append(relation)
+                        self.known_face_owners.append(owner_email)
                         name = new_name
                 except Exception as e: print(f"Auto-reg error: {e}")
 
@@ -439,7 +453,7 @@ class CameraManager:
                  self.emergency.trigger_emergency("Known Suspect")
 
             # Log
-            self.log_event(name, "Detected", relation, frame.copy())
+            self.log_event(name, "Detected", relation, frame.copy(), owner_email)
 
             # Add to overlays
             color = (0, 0, 255) if name.startswith("Unknown") else (0, 255, 0)
@@ -473,7 +487,7 @@ class CameraManager:
                     label = self.threat_classes[cls]
                     
                     self.emergency.trigger_emergency(f"Weapon ({label})")
-                    self.log_event("System", f"Weapon: {label}", "Suspect", frame.copy())
+                    self.log_event("System", f"Weapon: {label}", "Suspect", frame.copy(), owner_email)
 
                     overlays.append({
                         'type': 'box',
@@ -498,7 +512,7 @@ class CameraManager:
                      fx1 = min(box1[0], box2[0]); fy1 = min(box1[1], box2[1])
                      fx2 = max(box1[2], box2[2]); fy2 = max(box1[3], box2[3])
                      
-                     self.log_event("System", "Violence Detected", "Suspect", frame.copy())
+                     self.log_event("System", "Violence Detected", "Suspect", frame.copy(), owner_email)
                      self.emergency.trigger_emergency("Violence / Fighting")
                      
                      overlays.append({
@@ -532,7 +546,7 @@ class CameraManager:
             except: pass
         return frame
 
-    def log_event(self, name, action, relation="Visitor", face_img=None):
+    def log_event(self, name, action, relation="Visitor", face_img=None, owner_email="unknown"):
         """Adds an event to the history log and persists to MongoDB"""
         
         # Debounce (Memory check)
@@ -580,7 +594,8 @@ class CameraManager:
             "image": snap_rel_path,
             "time": now.strftime("%H:%M:%S"),
             "date": now.strftime("%Y-%m-%d"),
-            "timestamp": now
+            "timestamp": now,
+            "owner_email": owner_email
         }
         
         # In-Memory
@@ -594,22 +609,25 @@ class CameraManager:
         except Exception as e:
              print(f"DB Log Error: {e}")
 
-    def get_stats(self):
+    def get_stats(self, owner_email="unknown"):
         try:
             today = datetime.now().strftime("%Y-%m-%d")
             
             known_count = self.db['suspect_logs'].count_documents({
                 "date": today,
+                "owner_email": owner_email,
                 "name": {"$not": {"$regex": "^Unknown"}, "$ne": "System"}
             })
             
             unknown_count = self.db['suspect_logs'].count_documents({
                 "date": today,
+                "owner_email": owner_email,
                 "name": {"$regex": "^Unknown"}
             })
             
             suspect_count = self.db['suspect_logs'].count_documents({
                 "date": today,
+                "owner_email": owner_email,
                 "$or": [
                     {"name": "System"},
                     {"relation": {"$regex": "Suspect"}}
@@ -622,7 +640,7 @@ class CameraManager:
                 self.stats["suspects"] = suspect_count
                 
                 # Refresh history from DB to reflect deletions
-                recent_logs = list(self.db['suspect_logs'].find().sort("timestamp", -1).limit(20))
+                recent_logs = list(self.db['suspect_logs'].find({"owner_email": owner_email}).sort("timestamp", -1).limit(20))
                 cleaned_history = []
                 for log in recent_logs:
                     if '_id' in log: log['_id'] = str(log['_id'])

@@ -9,13 +9,14 @@ class EmergencyManager:
         self.contacts = db['emergency_contacts']
         self.active_alert = None
         
-    def get_contacts(self):
+    def get_contacts(self, owner_email='unknown'):
         """Returns list of all emergency contacts"""
-        return list(self.contacts.find())
+        return list(self.contacts.find({'owner_email': owner_email}))
 
-    def add_contact(self, name, phone, relation):
+    def add_contact(self, name, phone, relation, owner_email='unknown'):
         """Adds a new contact"""
         contact = {
+            "owner_email": owner_email,
             "name": name,
             "phone": phone,
             "relation": relation,
@@ -24,18 +25,18 @@ class EmergencyManager:
         self.contacts.insert_one(contact)
         return True
 
-    def delete_contact(self, contact_id):
+    def delete_contact(self, contact_id, owner_email='unknown'):
         """Deletes a contact by ID."""
         try:
             # 1. Try as ObjectId (MongoDB)
-            res = self.contacts.delete_one({"_id": ObjectId(contact_id)})
+            res = self.contacts.delete_one({"_id": ObjectId(contact_id), "owner_email": owner_email})
             if res.deleted_count > 0: return True
         except:
              pass
         
         # 2. Try as String (JsonDB or string-based ID)
         try:
-             res = self.contacts.delete_one({"_id": contact_id})
+             res = self.contacts.delete_one({"_id": contact_id, "owner_email": owner_email})
              # JsonDB delete_one returns None (in-place), but let's check if it worked?
              # Actually my JsonDB implementation of delete_one returns None. 
              # I should probably update JsonDB to return something or just assume success if no error.

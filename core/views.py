@@ -158,7 +158,8 @@ def add_camera(request):
                 if isinstance(source, str) and source.isdigit():
                     source = int(source)
 
-                stream = CameraStream(source, data['label'])
+                user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+                stream = CameraStream(source, data['label'], owner_email=user_email)
                 # Start stream first to establish connection
                 stream.start()
                 
@@ -170,7 +171,7 @@ def add_camera(request):
 
                 # Only assign callback if stream is valid
                 stream.set_pipeline(
-                    detector=camera_manager.detect_task,
+                    detector=lambda f, r: camera_manager.detect_task(f, r, user_email),
                     drawer=camera_manager.draw_task
                 )
 
@@ -209,7 +210,8 @@ def set_roi(request):
     return JsonResponse({'error': 'POST required'}, status=400)
 
 def get_stats(request):
-    return JsonResponse(camera_manager.get_stats())
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    return JsonResponse(camera_manager.get_stats(user_email))
 
 def get_emergency_status(request):
     return JsonResponse(camera_manager.emergency.get_status())
@@ -293,11 +295,13 @@ def logout_view(request):
 # --- ADMIN ---
 
 def admin_panel(request):
-    all_persons = list(persons.find().sort("serial_no", -1))
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    all_persons = list(persons.find({'owner_email': user_email}).sort('serial_no', -1))
     return render(request, 'admin.html', {'persons': all_persons})
 
 def contacts_panel(request):
-    contacts = camera_manager.emergency.get_contacts()
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    contacts = camera_manager.emergency.get_contacts(user_email)
     return render(request, 'contacts.html', {'contacts': contacts})
 
 def logs_panel(request):
@@ -323,7 +327,8 @@ def add_person(request):
         name = request.POST.get('name')
         
         # Check for existing
-        existing = persons.find_one({"name": {"$regex": f"^{name}$", "$options": "i"}})
+        user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        existing = persons.find_one({'owner_email': user_email, 'name': {'$regex': f'^{name}$', '$options': 'i'}})
         if existing:
             return JsonResponse({"success": False, "message": f"Person with name '{name}' already exists!"})
 
@@ -347,6 +352,7 @@ def add_person(request):
                     destination.write(photo_bin)
         
         persons.insert_one({
+            "owner_email": user_email,
             "serial_no": serial_no,
             "name": name,
             "relation": relation,
@@ -358,6 +364,7 @@ def add_person(request):
         })
         
         new_person = {
+            "owner_email": user_email,
             "name": name,
             "relation": relation,
             "photo": photo_path
@@ -370,11 +377,12 @@ def add_person(request):
 
 @csrf_exempt
 def delete_person(request, serial_no):
-    p = persons.find_one({"serial_no": int(serial_no)})
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    p = persons.find_one({'owner_email': user_email, 'serial_no': int(serial_no)})
     if p:
         name = p['name']
-        persons.delete_one({"serial_no": int(serial_no)})
-        camera_manager.remove_person_from_memory(name)
+        persons.delete_one({'owner_email': user_email, 'serial_no': int(serial_no)})
+        camera_manager.remove_person_from_memory(name, user_email)
         return JsonResponse({"success": True})
     return JsonResponse({"success": False, "message": "Person not found"})
 
@@ -443,7 +451,8 @@ def register_samples(request):
             persons.update_one({"_id": existing_person['_id']}, {"$set": update_fields})
         else:
             persons.insert_one({
-                "serial_no": serial_no,
+                "owner_email": user_email,
+            "serial_no": serial_no,
                 "name": name,
                 "relation": relation,
                 "phone": phone,
@@ -502,7 +511,7 @@ def api_login(request):
         password = data.get('password')
         user, msg = auth_manager.login_user(email, password)
         if user:
-            request.session['user_id'] = str(user.id)
+            # Skip django session to avoid ImproperlyConfigured DB errors
             return JsonResponse({'success': True, 'user': {'name': user.name, 'email': user.email}})
         return JsonResponse({'success': False, 'message': msg})
     return JsonResponse({'error': 'POST required'}, status=400)
@@ -516,23 +525,84 @@ def api_register(request):
     return JsonResponse({'error': 'POST required'}, status=400)
 
 @csrf_exempt
+def api_verify_email(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        success, msg = auth_manager.verify_email(data.get('email'), data.get('otp'))
+        return JsonResponse({'success': success, 'message': msg})
+    return JsonResponse({'error': 'POST required'}, status=400)
+
+import os
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
+@csrf_exempt
+def api_google_login(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        token = data.get('token')
+        
+        try:
+            # Specify the CLIENT_ID of the app that accesses the backend:
+            GOOGLE_CLIENT_ID = "615317108526-tj33r1aj7td1nnnle084u07r3ekcd6dq.apps.googleusercontent.com" 
+            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+
+            # ID token is valid. Get the user's Google Account ID from the decoded token.
+            email = idinfo['email']
+            name = idinfo.get('name', 'Google User')
+
+            user, msg = auth_manager.login_google_user(email, name)
+            if user:
+                # Skip django session to avoid ImproperlyConfigured DB errors
+                return JsonResponse({'success': True, 'user': {'name': user.name, 'email': user.email}})
+            return JsonResponse({'success': False, 'message': msg})
+            
+        except ValueError:
+            # Invalid token
+            return JsonResponse({'success': False, 'message': 'Invalid Google Token'})
+            
+    return JsonResponse({'error': 'POST required'}, status=400)
+
+@csrf_exempt
+def api_forgot_password(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        step = data.get('step')
+        email = data.get('email')
+        
+        if step == 1:
+            success, msg = auth_manager.forgot_password_request(email)
+            return JsonResponse({'success': success, 'message': msg})
+        elif step == 2:
+            otp = data.get('otp')
+            new_password = data.get('password')
+            success, msg = auth_manager.reset_password(email, otp, new_password)
+            return JsonResponse({'success': success, 'message': msg})
+            
+        return JsonResponse({'error': 'Invalid Step'}, status=400)
+    return JsonResponse({'error': 'POST required'}, status=400)
+
+@csrf_exempt
 def api_add_contact(request):
     if request.method == 'POST':
         data = json.loads(request.body)
-        success = camera_manager.emergency.add_contact(data.get('name'), data.get('phone'), data.get('relation'))
+        user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        success = camera_manager.emergency.add_contact(data.get('name'), data.get('phone'), data.get('relation'), user_email)
         return JsonResponse({'success': success})
     return JsonResponse({'error': 'POST required'}, status=400)
 
 @csrf_exempt
 def api_delete_contact(request, contact_id):
     if request.method == 'DELETE':
-        success = camera_manager.emergency.delete_contact(contact_id)
+        user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        success = camera_manager.emergency.delete_contact(contact_id, user_email)
         return JsonResponse({'success': success})
     return JsonResponse({'error': 'DELETE required'}, status=400)
 
 # API Endpoints for React
 def get_persons_api(request):
-    all_persons = list(persons.find().sort("serial_no", -1))
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    all_persons = list(persons.find({'owner_email': user_email}).sort('serial_no', -1))
     for p in all_persons:
         if '_id' in p:
             p['_id'] = str(p['_id'])
@@ -547,7 +617,8 @@ def get_persons_api(request):
     return JsonResponse(all_persons, safe=False)
 
 def get_contacts_api(request):
-    contacts = camera_manager.emergency.get_contacts()
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    contacts = camera_manager.emergency.get_contacts(user_email)
     for c in contacts:
         if '_id' in c:
             c['_id'] = str(c['_id'])
@@ -556,7 +627,8 @@ def get_contacts_api(request):
 def get_logs_api(request):
     # Fetch from MongoDB instead of memory
     try:
-        logs = list(db['suspect_logs'].find().sort("timestamp", -1).limit(100))
+        user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        logs = list(db['suspect_logs'].find({'owner_email': user_email}).sort("timestamp", -1).limit(100))
         for log in logs:
             if '_id' in log: log['_id'] = str(log['_id'])
     except:
@@ -567,7 +639,8 @@ def get_logs_api(request):
 def api_delete_log(request, log_id):
     if request.method == 'DELETE':
         try:
-            result = db['suspect_logs'].delete_one({'_id': ObjectId(log_id)})
+            user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+            result = db['suspect_logs'].delete_one({'owner_email': user_email, '_id': ObjectId(log_id)})
             if result.deleted_count > 0:
                 # Also remove from memory history if needed, but CameraManager usually re-reads or appends.
                 # However, get_stats() returns history from memory. We might need to sync.
