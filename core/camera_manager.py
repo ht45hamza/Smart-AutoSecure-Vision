@@ -212,7 +212,7 @@ class CameraManager:
         
         # Hydrate stats from DB
         try:
-            recent_logs = list(self.db['suspect_logs'].find({"owner_email": owner_email}).sort("timestamp", -1).limit(20))
+            recent_logs = list(self.db['suspect_logs'].find({"owner_email": "unknown"}).sort("timestamp", -1).limit(20))
             for log in recent_logs:
                 if '_id' in log: del log['_id'] 
                 if 'timestamp' in log: del log['timestamp']
