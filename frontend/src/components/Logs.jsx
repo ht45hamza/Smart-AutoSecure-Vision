@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { fetchLogs, deleteLog } from '../api';
 import Sidebar from './Sidebar';
 
-const Logs = () => {
+const Logs = ({ user }) => {
+    const role = user?.role || 'admin';
+    const isReadOnly = role === 'owner' || role === 'security_guard';
+    // Owner can only see suspect-type logs
+    const ownerOnly = role === 'owner';
     const [logs, setLogs] = useState([]);
     const [selectedLog, setSelectedLog] = useState(null);
     const [filter, setFilter] = useState('All');
@@ -24,25 +28,19 @@ const Logs = () => {
 
                     if (log.name === 'System') {
                         if (log.action && log.action.toLowerCase().includes('weapon')) {
-                            severity = 'Critical';
-                            type = 'Weapon';
+                            severity = 'Critical'; type = 'Weapon';
                         } else {
-                            severity = 'Medium';
-                            type = 'System';
+                            severity = 'Medium'; type = 'System';
                         }
                     } else {
-                        if (log.relation === 'Suspect') {
-                            severity = 'High';
-                            type = 'Person';
-                        } else if (log.relation === 'Visual') {
-                            severity = 'Medium'; // Unknown
-                            type = 'Person';
-                        }
+                        if (log.relation === 'Suspect') { severity = 'High'; type = 'Person'; }
+                        else if (log.relation === 'Visual') { severity = 'Medium'; type = 'Person'; }
                     }
-
                     return { ...log, id, severity, type };
                 });
-                setLogs(enriched);
+                // Owner only sees suspect logs
+                const filtered = ownerOnly ? enriched.filter(l => l.relation === 'Suspect') : enriched;
+                setLogs(filtered);
             }
         } catch (e) {
             console.error(e);
@@ -110,8 +108,10 @@ const Logs = () => {
                 {/* Header */}
                 <div className="d-flex justify-content-between align-items-end mb-4 border-bottom border-secondary pb-3">
                     <div>
-                        <h2 className="fw-bold text-uppercase mb-0 text-light"><i className="fas fa-file-medical-alt text-primary me-2"></i> Security Logs</h2>
-                        <p className="text-secondary mb-0 mt-1">Comprehensive audit trail of all detected security events.</p>
+                    <h2 className="fw-bold text-uppercase mb-0 text-light"><i className="fas fa-file-medical-alt text-primary me-2"></i> Security Logs</h2>
+                        <p className="text-secondary mb-0 mt-1">
+                            {ownerOnly ? 'Suspect detection events for your account.' : 'Comprehensive audit trail of all detected security events.'}
+                        </p>
                     </div>
                     <div className="d-flex gap-2">
                         {['All', 'Critical', 'High', 'Weapon', 'Person'].map(f => (
@@ -291,12 +291,14 @@ const Logs = () => {
                                                 >
                                                     <i className="fas fa-share-square me-2"></i> Export Report
                                                 </button>
+                                                {!isReadOnly && (
                                                 <button
                                                     className="btn btn-danger-soft fw-medium"
                                                     onClick={() => handleDeleteLog(selectedLog._id)}
                                                 >
                                                     <i className="fas fa-trash-alt me-2"></i> Mark as False Positive / Remove
                                                 </button>
+                                                )}
                                             </div>
                                         </div>
                                     </div>

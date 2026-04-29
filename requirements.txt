@@ -9,14 +9,14 @@ django-cors-headers>=4.3.0  # Essential for React-Django integration
 
 # Database
 pymongo>=4.6.0  # MongoDB Driver
-certifi>=2024.0.0  # SSL Certificate Verification (Crucial for Atlas)
+certifi  # SSL Certificate Verification (Crucial for Atlas)
 dnspython>=2.6.0  # MongoDB SRV support
 
 # Computer Vision & Image Processing
-opencv-python>=4.9.0
+opencv-python-headless>=4.9.0
 numpy>=1.26.0
 face_recognition>=1.3.0
-dlib>=19.24.0  # Face detection core (Requires C++ tools if wheel not available)
+dlib-bin # Face detection core (Requires C++ tools if wheel not available)
 Pillow>=10.2.0
 
 # Object Detection (YOLOv8)
@@ -25,6 +25,11 @@ ultralytics>=8.0.0
 # Utilities
 python-dotenv>=1.0.0  # Loads .env variables
 requests>=2.31.0
+gunicorn
+twilio>=8.0.0  # WhatsApp notifications for critical suspect alerts
+torch
+qrcode[pil]  # For mobile camera connection QR codes
+werkzeug  # For password hashing
 
 # ==========================================
 # FRONTEND DEPENDENCIES (Node.js/npm)

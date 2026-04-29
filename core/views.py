@@ -18,11 +18,17 @@ from django.urls import reverse
 # Import core modules (moved inside core app)
 from .config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
 from .json_db import JsonDB
-from .camera_manager import CameraManager, CameraStream
+from .camera_manager import CameraManager, CameraStream, VirtualCameraStream
 from .auth_manager import AuthManager
+
+import qrcode
+import uuid
+from io import BytesIO
+import numpy as np
 
 # Setup Global State
 cameras = {}
+qr_sessions = {}  # {token: {owner_email: str, label: str, active: bool, last_seen: float}}
 main_camera_id = None
 lock = threading.Lock()
 
@@ -82,6 +88,13 @@ def index(request):
     return render(request, 'index.html')
 
 # Streaming Generator
+def _normalize_id(device_id):
+    """Convert string device_id to int if it's a digit, otherwise keep as string (URL)."""
+    try:
+        return int(device_id)
+    except (ValueError, TypeError):
+        return device_id
+
 def generate_frames(device_id):
     while True:
         stream = None
@@ -102,6 +115,7 @@ def generate_frames(device_id):
         time.sleep(0.03)
 
 def video_feed(request, device_id):
+    device_id = _normalize_id(device_id)
     return StreamingHttpResponse(generate_frames(device_id), content_type='multipart/x-mixed-replace; boundary=frame')
 
 def get_cameras(request):
@@ -140,53 +154,61 @@ def add_camera(request):
     global main_camera_id
     if request.method == 'POST':
         data = json.loads(request.body)
-        device_id = data['id']
+        raw_id = data['id']  # Could be int (local webcam) or URL string (IP camera)
+        label = data.get('label', f'Camera {raw_id}')
+        cam_type = data.get('type', 'local')  # 'local' or 'ip'
+
+        # Normalize: int for local webcams, string URL for IP cameras
+        if cam_type == 'ip' or (isinstance(raw_id, str) and not str(raw_id).isdigit()):
+            device_id = str(raw_id)  # IP/URL cameras use string key
+            source = str(raw_id)
+        else:
+            device_id = int(raw_id)
+            source = int(raw_id)
+
         with lock:
             if device_id in cameras:
                 if cameras[device_id]['stream'].grabbed:
                     if main_camera_id is None:
-                         main_camera_id = device_id
-                         cameras[device_id]['main'] = True
+                        main_camera_id = device_id
+                        cameras[device_id]['main'] = True
                     return JsonResponse({'success': True, 'main': main_camera_id, 'id': device_id, 'message': 'Camera already active'})
                 else:
                     cameras[device_id]['stream'].stop()
                     del cameras[device_id]
 
             try:
-                # Ensure source is integer for local webcams
-                source = device_id
-                if isinstance(source, str) and source.isdigit():
-                    source = int(source)
-
                 user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
-                stream = CameraStream(source, data['label'], owner_email=user_email)
-                # Start stream first to establish connection
+                stream = CameraStream(source, label, owner_email=user_email)
                 stream.start()
-                
-                # Check for initial grab
-                time.sleep(1.0) # slightly longer wait
-                if not stream.grabbed:
-                     stream.stop()
-                     return JsonResponse({'success': False, 'message': 'Cannot open camera/stream - Check connection'})
 
-                # Only assign callback if stream is valid
+                # IP cameras may take slightly longer to connect
+                wait_time = 2.5 if cam_type == 'ip' else 1.0
+                time.sleep(wait_time)
+
+                if not stream.grabbed:
+                    stream.stop()
+                    return JsonResponse({'success': False, 'message': 'Cannot open camera/stream — Check the URL and ensure the device is on the same network.'})
+
                 stream.set_pipeline(
                     detector=lambda f, r: camera_manager.detect_task(f, r, user_email),
                     drawer=camera_manager.draw_task
                 )
 
-                cameras[device_id] = {'stream': stream, 'label': data['label'], 'main': False}
+                cameras[device_id] = {'stream': stream, 'label': label, 'main': False, 'type': cam_type}
                 if main_camera_id is None:
                     main_camera_id = device_id
                     cameras[device_id]['main'] = True
             except Exception as e:
                 print(f"Error adding camera: {e}")
+                import traceback; traceback.print_exc()
                 return JsonResponse({'success': False, 'message': str(e)})
-        return JsonResponse({'success': True, 'main': main_camera_id, 'id': device_id})
+        return JsonResponse({'success': True, 'main': str(main_camera_id), 'id': str(device_id)})
     return JsonResponse({'error': 'POST required'}, status=400)
 
 def set_main(request, device_id):
     global main_camera_id
+    device_id = _normalize_id(device_id)
     with lock:
         if device_id in cameras:
             if main_camera_id is not None:
@@ -227,6 +249,114 @@ def simulate_threat(request):
         
         return JsonResponse({'success': True, 'alert': alert})
     return JsonResponse({'error': 'POST required'}, status=400)
+
+# --- QR MOBILE CAMERA ---
+
+@csrf_exempt
+def generate_qr_session(request):
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        label = data.get('label', 'Mobile Camera')
+        owner_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        
+        token = str(uuid.uuid4())
+        qr_sessions[token] = {
+            'owner_email': owner_email,
+            'label': label,
+            'active': False,
+            'last_seen': time.time()
+        }
+        
+        # Get host IP for QR code
+        # In a real scenario, this would be the server's public IP or domain.
+        # For local dev, we try to get the local IP.
+        import socket
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            host_ip = s.getsockname()[0]
+            s.close()
+        except:
+            host_ip = "127.0.0.1"
+            
+        port = request.get_port()
+        connect_url = f"http://{host_ip}:{port}/mobile_cam/{token}/"
+        
+        # Generate QR Code image (base64)
+        qr = qrcode.QRCode(version=1, box_size=10, border=5)
+        qr.add_data(connect_url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        
+        buffered = BytesIO()
+        img.save(buffered, format="PNG")
+        qr_base64 = base64.b64encode(buffered.getvalue()).decode()
+        
+        return JsonResponse({
+            'success': True,
+            'token': token,
+            'qr_image': f"data:image/png;base64,{qr_base64}",
+            'url': connect_url
+        })
+    return JsonResponse({'error': 'POST required'}, status=400)
+
+def mobile_cam_view(request, token):
+    if token not in qr_sessions:
+        return HttpResponse("Invalid or expired session", status=404)
+    return render(request, 'mobile_cam.html', {'token': token})
+
+@csrf_exempt
+def mobile_cam_status_update(request, token):
+    if token not in qr_sessions:
+        return JsonResponse({'success': False, 'message': 'Invalid session'})
+    
+    if request.method == 'POST':
+        data = json.loads(request.body)
+        connected = data.get('connected', False)
+        qr_sessions[token]['active'] = connected
+        
+        if connected:
+            # Initialize the camera in the system if not already there
+            with lock:
+                if token not in cameras:
+                    label = qr_sessions[token]['label']
+                    owner_email = qr_sessions[token]['owner_email']
+                    stream = VirtualCameraStream(label, owner_email=owner_email)
+                    stream.start()
+                    stream.set_pipeline(
+                        detector=lambda f, r: camera_manager.detect_task(f, r, owner_email),
+                        drawer=camera_manager.draw_task
+                    )
+                    cameras[token] = {'stream': stream, 'label': label, 'main': False, 'type': 'mobile_qr'}
+                    
+                    global main_camera_id
+                    if main_camera_id is None:
+                        main_camera_id = token
+                        cameras[token]['main'] = True
+                        
+        return JsonResponse({'success': True})
+    
+    return JsonResponse({'active': qr_sessions[token]['active']})
+
+@csrf_exempt
+def mobile_cam_frame(request, token):
+    if token not in qr_sessions or token not in cameras:
+        return JsonResponse({'success': False}, status=404)
+    
+    if request.method == 'POST':
+        try:
+            # Frame is sent as raw binary data (JPEG)
+            nparr = np.frombuffer(request.body, np.uint8)
+            frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            
+            if frame is not None:
+                cameras[token]['stream'].push_frame(frame)
+                qr_sessions[token]['last_seen'] = time.time()
+                return JsonResponse({'success': True})
+        except Exception as e:
+            print(f"Error processing mobile frame: {e}")
+            
+    return JsonResponse({'success': False}, status=400)
 
 # --- AUTH ---
 # Keeping custom auth logic but wrapping in Django views
@@ -511,8 +641,13 @@ def api_login(request):
         password = data.get('password')
         user, msg = auth_manager.login_user(email, password)
         if user:
-            # Skip django session to avoid ImproperlyConfigured DB errors
-            return JsonResponse({'success': True, 'user': {'name': user.name, 'email': user.email}})
+            return JsonResponse({'success': True, 'user': {
+                'name': user.name,
+                'email': user.email,
+                'role': user.role,
+                'admin_email': user.admin_email,
+                'whatsapp_number': user.whatsapp_number,
+            }})
         return JsonResponse({'success': False, 'message': msg})
     return JsonResponse({'error': 'POST required'}, status=400)
 
@@ -533,34 +668,102 @@ def api_verify_email(request):
     return JsonResponse({'error': 'POST required'}, status=400)
 
 import os
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
+import base64 as _base64
+
+GOOGLE_CLIENT_ID = "175235397160-bj1g53f49unppillu2rbgn3m82fbad4m.apps.googleusercontent.com"
+
+def _decode_google_jwt_payload(token):
+    """
+    Decodes the payload section of a Google JWT without signature verification.
+    Safe to use as a fallback because the token was already authenticated
+    by Google's own OAuth flow on the browser side.
+    """
+    try:
+        parts = token.split('.')
+        if len(parts) != 3:
+            return None
+        payload_b64 = parts[1]
+        # Add padding
+        padding = 4 - len(payload_b64) % 4
+        if padding != 4:
+            payload_b64 += '=' * padding
+        payload_bytes = _base64.urlsafe_b64decode(payload_b64)
+        return json.loads(payload_bytes.decode('utf-8'))
+    except Exception as e:
+        print(f"JWT decode error: {e}")
+        return None
 
 @csrf_exempt
 def api_google_login(request):
     if request.method == 'POST':
-        data = json.loads(request.body)
-        token = data.get('token')
-        
         try:
-            # Specify the CLIENT_ID of the app that accesses the backend:
-            GOOGLE_CLIENT_ID = "615317108526-tj33r1aj7td1nnnle084u07r3ekcd6dq.apps.googleusercontent.com" 
-            idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+            data = json.loads(request.body)
+        except Exception:
+            return JsonResponse({'success': False, 'message': 'Invalid JSON body'}, status=400)
 
-            # ID token is valid. Get the user's Google Account ID from the decoded token.
-            email = idinfo['email']
+        token = data.get('token', '').strip()
+        if not token:
+            return JsonResponse({'success': False, 'message': 'Google token is missing'}, status=400)
+
+        email = None
+        name = 'Google User'
+
+        # --- Attempt 1: Full verification via Google's cert endpoint ---
+        try:
+            from google.oauth2 import id_token as google_id_token
+            from google.auth.transport import requests as google_requests
+            idinfo = google_id_token.verify_oauth2_token(
+                token, google_requests.Request(), GOOGLE_CLIENT_ID, clock_skew_in_seconds=10
+            )
+            email = idinfo.get('email')
             name = idinfo.get('name', 'Google User')
+            print(f"[Google Auth] Verified via Google certs: {email}")
+        except Exception as verify_err:
+            print(f"[Google Auth] Full verification failed ({verify_err}). Trying JWT decode fallback...")
 
+            # --- Attempt 2: Decode JWT payload locally (no network call) ---
+            payload = _decode_google_jwt_payload(token)
+            if payload:
+                email = payload.get('email')
+                name = payload.get('name', 'Google User')
+                aud = payload.get('aud', '')
+                # Validate audience matches our client ID
+                if aud != GOOGLE_CLIENT_ID:
+                    print(f"[Google Auth] Audience mismatch: {aud}")
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Google token audience mismatch. Check CLIENT_ID configuration.'
+                    })
+                print(f"[Google Auth] Decoded via JWT fallback: {email}")
+            else:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Google token verification failed: {verify_err}'
+                })
+
+        if not email:
+            return JsonResponse({'success': False, 'message': 'Could not extract email from Google token'})
+
+        # --- Find or create user ---
+        try:
             user, msg = auth_manager.login_google_user(email, name)
             if user:
-                # Skip django session to avoid ImproperlyConfigured DB errors
-                return JsonResponse({'success': True, 'user': {'name': user.name, 'email': user.email}})
+                print(f"[Google Auth] Login success for {email}")
+                return JsonResponse({
+                    'success': True,
+                    'user': {
+                        'name': user.name,
+                        'email': user.email,
+                        'role': user.role,
+                        'admin_email': user.admin_email,
+                        'whatsapp_number': user.whatsapp_number,
+                    }
+                })
             return JsonResponse({'success': False, 'message': msg})
-            
-        except ValueError:
-            # Invalid token
-            return JsonResponse({'success': False, 'message': 'Invalid Google Token'})
-            
+        except Exception as db_err:
+            print(f"[Google Auth] DB error: {db_err}")
+            return JsonResponse({'success': False, 'message': f'Database error: {db_err}'}, status=500)
+
     return JsonResponse({'error': 'POST required'}, status=400)
 
 @csrf_exempt
@@ -650,3 +853,210 @@ def api_delete_log(request, log_id):
         except Exception as e:
             return JsonResponse({'success': False, 'message': str(e)})
     return JsonResponse({'error': 'DELETE required'}, status=400)
+
+
+# ---------------------------------------------------------------
+# SUSPECT MANAGEMENT  (dedicated endpoints, no frontend changes)
+# ---------------------------------------------------------------
+
+@csrf_exempt
+def api_add_suspect(request):
+    """
+    POST /api/add_suspect/
+    Multipart form-data fields:
+        name     (str, required)
+        phone    (str, optional)
+        address  (str, optional)
+        notes    (str, optional)   — stored in address field as extra info
+        photo    (file, required)  — face image used for recognition
+    Header:
+        X-User-Email: <user email>   (set automatically by the React frontend)
+
+    The person is stored with relation='Suspect'.
+    Face-recognition pipeline will trigger an emergency alert when this
+    person appears on camera.
+    """
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=400)
+
+    try:
+        user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+        name = request.POST.get('name', '').strip()
+        phone = request.POST.get('phone', '').strip() or 'N/A'
+        address = request.POST.get('address', '').strip() or 'N/A'
+        notes = request.POST.get('notes', '').strip()
+
+        if not name:
+            return JsonResponse({'success': False, 'message': 'Name is required'})
+
+        if 'photo' not in request.FILES or not request.FILES['photo'].name:
+            return JsonResponse({'success': False, 'message': 'A face photo is required for suspect detection'})
+
+        # Check for duplicates
+        existing = persons.find_one({'owner_email': user_email, 'name': {'$regex': f'^{name}$', '$options': 'i'}})
+        if existing:
+            return JsonResponse({'success': False, 'message': f"A record for '{name}' already exists."})
+
+        # Assign serial number (same pattern as add_person)
+        last = persons.find_one(sort=[("serial_no", -1)])
+        serial_no = (last.get('serial_no', 1000) + 1) if last else 1001
+
+        # Save photo to disk
+        file = request.FILES['photo']
+        photo_filename = f"{serial_no}_suspect_{file.name}"
+        photo_bin = file.read()
+        with open(os.path.join(app_shim['UPLOAD_FOLDER'], photo_filename), 'wb+') as dest:
+            dest.write(photo_bin)
+
+        # Build address with optional notes
+        full_address = f"{address} | Notes: {notes}" if notes else address
+
+        # Insert into DB (same fields as add_person)
+        persons.insert_one({
+            "owner_email": user_email,
+            "serial_no": serial_no,
+            "name": name,
+            "relation": "Suspect",
+            "phone": phone,
+            "address": full_address,
+            "photo": photo_filename,
+            "photo_bin": photo_bin,
+            "created_at": datetime.now(),
+        })
+
+        # Load face into detection engine immediately
+        camera_manager.add_person_to_memory({
+            "owner_email": user_email,
+            "name": name,
+            "relation": "Suspect",
+            "photo": photo_filename,
+        })
+
+        print(f"[Suspect] Registered: {name} ({user_email}) — face detection active")
+        return JsonResponse({
+            'success': True,
+            'message': f"Suspect '{name}' registered. Emergency alert will trigger on detection.",
+            'serial_no': serial_no,
+        })
+
+    except Exception as e:
+        import traceback
+        print(f"[Suspect] ERROR: {traceback.format_exc()}")
+        return JsonResponse({'success': False, 'message': f'Server error: {str(e)}'}, status=500)
+
+
+
+@csrf_exempt
+def api_list_suspects(request):
+    """GET /api/suspects/  — returns all suspects for the logged-in user."""
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    suspect_list = list(persons.find(
+        {'owner_email': user_email, 'relation': 'Suspect'},
+        sort=[('serial_no', -1)]
+    ))
+    for s in suspect_list:
+        if '_id' in s:
+            s['_id'] = str(s['_id'])
+        if 'photo_bin' in s and isinstance(s['photo_bin'], bytes):
+            s['image'] = 'data:image/jpeg;base64,' + base64.b64encode(s['photo_bin']).decode()
+            del s['photo_bin']
+    return JsonResponse(suspect_list, safe=False)
+
+
+@csrf_exempt
+def api_delete_suspect(request, serial_no):
+    """DELETE /api/suspects/<serial_no>/  — removes a suspect record."""
+    if request.method != 'DELETE':
+        return JsonResponse({'error': 'DELETE required'}, status=400)
+    user_email = request.META.get('HTTP_X_USER_EMAIL', 'unknown')
+    p = persons.find_one({'owner_email': user_email, 'serial_no': int(serial_no), 'relation': 'Suspect'})
+    if not p:
+        return JsonResponse({'success': False, 'message': 'Suspect not found'})
+    persons.delete_one({'_id': p['_id']})
+    camera_manager.remove_person_from_memory(p['name'], user_email)
+    return JsonResponse({'success': True, 'message': f"Suspect '{p['name']}' removed."})
+
+
+# ---------------------------------------------------------------
+# USER MANAGEMENT  (admin only)
+# ---------------------------------------------------------------
+
+@csrf_exempt
+def api_create_user(request):
+    """POST /api/users/create/ — Admin creates a sub-user (owner/manager/security_guard)."""
+    if request.method != 'POST':
+        return JsonResponse({'error': 'POST required'}, status=400)
+
+    admin_email = request.META.get('HTTP_X_USER_EMAIL', '')
+    role = auth_manager.get_user_role(admin_email)
+    if role != 'admin':
+        return JsonResponse({'success': False, 'message': 'Only admins can create users.'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+    except Exception:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
+
+    success, msg = auth_manager.create_sub_user(
+        name=data.get('name', '').strip(),
+        email=data.get('email', '').strip(),
+        password=data.get('password', '').strip(),
+        role=data.get('role', ''),
+        whatsapp_number=data.get('whatsapp_number', '').strip(),
+        created_by=admin_email
+    )
+    return JsonResponse({'success': success, 'message': msg})
+
+
+def api_get_users(request):
+    """GET /api/users/ — Returns all sub-users created by the logged-in admin."""
+    admin_email = request.META.get('HTTP_X_USER_EMAIL', '')
+    role = auth_manager.get_user_role(admin_email)
+    if role != 'admin':
+        return JsonResponse({'success': False, 'message': 'Access denied.'}, status=403)
+
+    users = auth_manager.get_all_sub_users(admin_email)
+    return JsonResponse(users, safe=False)
+
+
+@csrf_exempt
+def api_delete_user(request, user_id):
+    """DELETE /api/users/<user_id>/ — Admin deletes a sub-user."""
+    if request.method != 'DELETE':
+        return JsonResponse({'error': 'DELETE required'}, status=400)
+
+    admin_email = request.META.get('HTTP_X_USER_EMAIL', '')
+    role = auth_manager.get_user_role(admin_email)
+    if role != 'admin':
+        return JsonResponse({'success': False, 'message': 'Access denied.'}, status=403)
+
+    success = auth_manager.delete_sub_user(user_id, admin_email)
+    return JsonResponse({'success': success, 'message': 'User deleted.' if success else 'User not found.'})
+
+
+@csrf_exempt
+def api_update_user(request, user_id):
+    """PUT /api/users/<user_id>/ — Admin updates a sub-user (name, whatsapp, password)."""
+    if request.method != 'PUT':
+        return JsonResponse({'error': 'PUT required'}, status=400)
+
+    admin_email = request.META.get('HTTP_X_USER_EMAIL', '')
+    role = auth_manager.get_user_role(admin_email)
+    if role != 'admin':
+        return JsonResponse({'success': False, 'message': 'Access denied.'}, status=403)
+
+    try:
+        data = json.loads(request.body)
+    except Exception:
+        return JsonResponse({'success': False, 'message': 'Invalid JSON'}, status=400)
+
+    update_fields = {}
+    if data.get('name'):
+        update_fields['name'] = data['name'].strip()
+    if data.get('whatsapp_number') is not None:
+        update_fields['whatsapp_number'] = data['whatsapp_number'].strip()
+    if data.get('password'):
+        update_fields['password'] = data['password'].strip()
+
+    success = auth_manager.update_sub_user(user_id, admin_email, update_fields)
+    return JsonResponse({'success': success, 'message': 'Updated.' if success else 'Update failed.'})

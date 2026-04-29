@@ -5,11 +5,16 @@ import os
 import threading
 import time
 import pickle
+import warnings
+warnings.filterwarnings("ignore")
+np.set_printoptions(threshold=0)  # Suppress large numpy array printing
 from datetime import datetime
 from .config import MONGODB_URI, DATABASE_NAME, COLLECTION_NAME
 from pymongo import MongoClient
 from ultralytics import YOLO
-import torch 
+import torch
+import logging
+logging.getLogger("ultralytics").setLevel(logging.WARNING)
 from .emergency_manager import EmergencyManager
 
 class CameraStream:
@@ -17,15 +22,29 @@ class CameraStream:
         self.src = src
         self.name = name
         self.owner_email = owner_email
-        
-        # Initialize Stream
-        self.stream = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
+
+        # Detect if this is a URL/network stream or a local device
+        self._is_url = isinstance(src, str) and (
+            src.startswith('http') or src.startswith('rtsp') or
+            src.startswith('rtsps') or '/' in str(src)
+        )
+
+        # Use CAP_DSHOW only for local integer-index webcams (Windows)
+        if self._is_url:
+            self.stream = cv2.VideoCapture(self.src)  # Default backend for URLs
+        else:
+            self.stream = cv2.VideoCapture(self.src, cv2.CAP_DSHOW)
+
+        if not self._is_url:
+            # Set buffer size small for local cams to reduce latency
+            self.stream.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
         (self.grabbed, self.frame) = self.stream.read()
         self.started = False
         self.read_lock = threading.Lock()
         self.output_frame = None
-        self.roi_mask = None # For ROI
-        
+        self.roi_mask = None  # For ROI
+
         if self.grabbed:
             self.output_frame = self.frame.copy()
 
@@ -168,6 +187,103 @@ class CameraStream:
         if hasattr(self, 'thread') and self.thread.is_alive():
              self.thread.join(timeout=1.0)
         self.stream.release()
+
+class VirtualCameraStream:
+    def __init__(self, name, owner_email='unknown'):
+        self.name = name
+        self.owner_email = owner_email
+        self.frame = None
+        self.output_frame = None
+        self.started = False
+        self.read_lock = threading.Lock()
+        self.overlay_lock = threading.Lock()
+        self.latest_overlays = []
+        self.roi_mask = None
+        self.detector_func = None
+        self.drawer_func = None
+
+    def start(self):
+        if self.started: return self
+        self.started = True
+        # Start AI Detection Thread
+        self.detect_thread = threading.Thread(target=self.run_detection, args=())
+        self.detect_thread.daemon = True
+        self.detect_thread.start()
+        # Start Drawer Thread (optional, but keep consistent with CameraStream)
+        self.thread = threading.Thread(target=self.update, args=())
+        self.thread.daemon = True
+        self.thread.start()
+        return self
+
+    def set_roi(self, roi_data):
+        with self.read_lock:
+            if roi_data is None:
+                self.roi_mask = None
+                return
+            if self.frame is None: return
+            h, w = self.frame.shape[:2]
+            mask = np.zeros((h, w), dtype=np.uint8)
+            points = roi_data.get('points')
+            shape_type = roi_data.get('type')
+            try:
+                if shape_type == 'rect':
+                    x, y, rw, rh = points
+                    x, y, rw, rh = int(x*w), int(y*h), int(rw*w), int(rh*h)
+                    cv2.rectangle(mask, (x, y), (x+rw, y+rh), 255, -1)
+                elif shape_type == 'circle':
+                    cx, cy, r = points
+                    cx, cy, r = int(cx*w), int(cy*h), int(r*w)
+                    cv2.circle(mask, (cx, cy), r, 255, -1)
+                elif shape_type in ['poly', 'freehand']:
+                    pts = np.array([ [int(p[0]*w), int(p[1]*h)] for p in points ], np.int32)
+                    pts = pts.reshape((-1, 1, 2))
+                    cv2.fillPoly(mask, [pts], 255)
+                self.roi_mask = mask
+            except Exception as e:
+                print(f"Error setting ROI: {e}")
+
+    def set_pipeline(self, detector, drawer):
+        self.detector_func = detector
+        self.drawer_func = drawer
+
+    def push_frame(self, frame):
+        with self.read_lock:
+            self.frame = frame
+
+    def run_detection(self):
+        while self.started:
+            if self.detector_func and self.frame is not None:
+                try:
+                    with self.read_lock:
+                        detect_frame = self.frame.copy()
+                    results = self.detector_func(detect_frame, self.roi_mask)
+                    with self.overlay_lock:
+                        self.latest_overlays = results
+                except Exception as e:
+                    print(f"Virtual Detection Thread Error: {e}")
+            time.sleep(0.1)
+
+    def update(self):
+        while self.started:
+            if self.frame is not None:
+                with self.overlay_lock:
+                    current_overlays = self.latest_overlays
+                if self.drawer_func:
+                    try:
+                        with self.read_lock:
+                            f = self.frame.copy()
+                        self.output_frame = self.drawer_func(f, current_overlays, self.roi_mask)
+                    except:
+                        self.output_frame = self.frame
+                else:
+                    self.output_frame = self.frame
+            time.sleep(0.03)
+
+    def read(self):
+        return self.output_frame
+
+    def stop(self):
+        self.started = False
 
 class CameraManager:
     def __init__(self, app_config, db):
@@ -408,7 +524,12 @@ class CameraManager:
                 best_match_index = -1
                 best_distance = 999
                 for i, d in enumerate(face_distances):
-                    if self.known_face_owners[i] == owner_email and d < 0.55:
+                    # Match if owner_email matches OR person has no owner set (legacy data)
+                    owner_ok = (
+                        self.known_face_owners[i] == owner_email or
+                        self.known_face_owners[i] in ('unknown', '', None)
+                    )
+                    if owner_ok and d < 0.6:  # Slightly relaxed tolerance for better recall
                         if d < best_distance:
                             best_distance = d
                             best_match_index = i
@@ -450,7 +571,11 @@ class CameraManager:
 
             # Triggers
             if "suspect" in relation.lower():
-                 self.emergency.trigger_emergency("Known Suspect")
+                self.emergency.trigger_emergency(
+                    threat_type="Known Suspect",
+                    owner_email=owner_email,
+                    suspect_name=name
+                )
 
             # Log
             self.log_event(name, "Detected", relation, frame.copy(), owner_email)
@@ -485,8 +610,11 @@ class CameraManager:
                     x1, y1, x2, y2 = box.xyxy[0]
                     x1, y1, x2, y2 = int(x1*2), int(y1*2), int(x2*2), int(y2*2) # Scale 2x
                     label = self.threat_classes[cls]
-                    
-                    self.emergency.trigger_emergency(f"Weapon ({label})")
+                    self.emergency.trigger_emergency(
+                        threat_type=f"Weapon ({label})",
+                        owner_email=owner_email,
+                        suspect_name="Unknown"
+                    )
                     self.log_event("System", f"Weapon: {label}", "Suspect", frame.copy(), owner_email)
 
                     overlays.append({
@@ -509,19 +637,23 @@ class CameraManager:
                 iou = interArea / float(box1Area + box2Area - interArea)
                 
                 if iou > 0.35:
-                     fx1 = min(box1[0], box2[0]); fy1 = min(box1[1], box2[1])
-                     fx2 = max(box1[2], box2[2]); fy2 = max(box1[3], box2[3])
-                     
-                     self.log_event("System", "Violence Detected", "Suspect", frame.copy(), owner_email)
-                     self.emergency.trigger_emergency("Violence / Fighting")
-                     
-                     overlays.append({
+                    fx1 = min(box1[0], box2[0]); fy1 = min(box1[1], box2[1])
+                    fx2 = max(box1[2], box2[2]); fy2 = max(box1[3], box2[3])
+
+                    self.log_event("System", "Violence Detected", "Suspect", frame.copy(), owner_email)
+                    self.emergency.trigger_emergency(
+                        threat_type="Violence / Fighting",
+                        owner_email=owner_email,
+                        suspect_name="Unknown"
+                    )
+
+                    overlays.append({
                         'type': 'box',
                         'coords': (fx1, fy1, fx2, fy2),
                         'color': (128, 0, 128),
                         'label': "VIOLENCE DETECTED",
                         'thick': 4
-                     })
+                    })
                      
         return overlays
 

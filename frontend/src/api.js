@@ -1,11 +1,21 @@
 export const API_BASE = ''; // Relative path since embedded
 
+/**
+ * getAuthHeaders — injects the correct X-User-Email header.
+ * For sub-users (manager/owner/security_guard) the backend needs
+ * the ADMIN's email for data filtering, stored as admin_email in localStorage.
+ */
 const getAuthHeaders = (isJson = true) => {
     const userStr = localStorage.getItem('autosecure_user');
     const user = userStr ? JSON.parse(userStr) : null;
     const headers = {};
     if (isJson) headers['Content-Type'] = 'application/json';
-    if (user && user.email) headers['X-User-Email'] = user.email;
+    // Always send admin_email so backend filters data by the correct owner
+    if (user) {
+        headers['X-User-Email'] = user.admin_email || user.email;
+        headers['X-Actual-Email'] = user.email;   // actual logged-in user
+        headers['X-User-Role'] = user.role || 'admin';
+    }
     return headers;
 };
 
@@ -94,7 +104,7 @@ export const deletePerson = async (serial_no) => {
 export const apiLogin = async (email, password) => {
     const res = await fetch(`${API_BASE}/api/login/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password })
     });
     return res.json();
@@ -103,7 +113,7 @@ export const apiLogin = async (email, password) => {
 export const apiRegister = async (name, email, password) => {
     const res = await fetch(`${API_BASE}/api/register/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name, email, password })
     });
     return res.json();
@@ -112,7 +122,7 @@ export const apiRegister = async (name, email, password) => {
 export const apiVerifyOtp = async (email, otp) => {
     const res = await fetch(`${API_BASE}/api/verify_email/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, otp })
     });
     return res.json();
@@ -121,7 +131,7 @@ export const apiVerifyOtp = async (email, otp) => {
 export const apiGoogleLogin = async (token) => {
     const res = await fetch(`${API_BASE}/api/google_login/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token })
     });
     return res.json();
@@ -130,7 +140,7 @@ export const apiGoogleLogin = async (token) => {
 export const apiForgotPassword = async (step, email, otp = null, password = null) => {
     const res = await fetch(`${API_BASE}/api/forgot_password/`, {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ step, email, otp, password })
     });
     return res.json();
@@ -153,7 +163,6 @@ export const deleteContact = async (id) => {
     return res.json();
 };
 
-// New API functions
 export const fetchPersons = async () => {
     const res = await fetch(`${API_BASE}/api/persons/`, { headers: getAuthHeaders(false) });
     return res.json();
@@ -173,6 +182,73 @@ export const deleteLog = async (id) => {
     const res = await fetch(`${API_BASE}/api/delete_log/${id}/`, {
         method: 'DELETE',
         headers: getAuthHeaders(false)
+    });
+    return res.json();
+};
+
+// Suspect Management
+export const addSuspect = async (formData) => {
+    const res = await fetch(`${API_BASE}/api/add_suspect/`, {
+        method: 'POST',
+        headers: getAuthHeaders(false),
+        body: formData
+    });
+    return res.json();
+};
+
+export const fetchSuspects = async () => {
+    const res = await fetch(`${API_BASE}/api/suspects/`, { headers: getAuthHeaders(false) });
+    return res.json();
+};
+
+export const deleteSuspect = async (serial_no) => {
+    const res = await fetch(`${API_BASE}/api/suspects/${serial_no}/`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(false)
+    });
+    return res.json();
+};
+
+// ---------------------------------------------------------------
+// User Management (admin only)
+// ---------------------------------------------------------------
+
+export const fetchSubUsers = async () => {
+    const res = await fetch(`${API_BASE}/api/users/`, { headers: getAuthHeaders(false) });
+    return res.json();
+};
+
+export const createSubUser = async (payload) => {
+    const res = await fetch(`${API_BASE}/api/users/create/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+};
+
+export const deleteSubUser = async (userId) => {
+    const res = await fetch(`${API_BASE}/api/users/${userId}/`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(false)
+    });
+    return res.json();
+};
+
+export const updateSubUser = async (userId, payload) => {
+    const res = await fetch(`${API_BASE}/api/users/${userId}/update/`, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload)
+    });
+    return res.json();
+};
+
+export const generateQrSession = async (label) => {
+    const res = await fetch(`${API_BASE}/api/qrcode_gen/`, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ label })
     });
     return res.json();
 };

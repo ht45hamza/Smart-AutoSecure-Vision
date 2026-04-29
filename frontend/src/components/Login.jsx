@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { apiLogin, apiRegister, apiVerifyOtp, apiGoogleLogin, apiForgotPassword } from '../api';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
-const GOOGLE_CLIENT_ID = "615317108526-tj33r1aj7td1nnnle084u07r3ekcd6dq.apps.googleusercontent.com"; // User's Client ID
+const GOOGLE_CLIENT_ID = "175235397160-bj1g53f49unppillu2rbgn3m82fbad4m.apps.googleusercontent.com"; // User's Client ID
 
 const Login = ({ onLoginSuccess }) => {
     const [view, setView] = useState('login'); // 'login', 'register', 'verify', 'forgot1', 'forgot2'

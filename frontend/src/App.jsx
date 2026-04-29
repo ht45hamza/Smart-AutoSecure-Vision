@@ -7,33 +7,40 @@ const App = () => {
     const [user, setUser] = useState(null);
 
     useEffect(() => {
-        // Check local storage for persistent login session across reloads
         const storedUser = localStorage.getItem('autosecure_user');
         if (storedUser) {
-            setUser(JSON.parse(storedUser));
-            setIsAuthenticated(true);
+            try {
+                const parsed = JSON.parse(storedUser);
+                setUser(parsed);
+                setIsAuthenticated(true);
+            } catch {
+                localStorage.removeItem('autosecure_user');
+            }
         }
     }, []);
 
     const handleLoginSuccess = (userData) => {
-        setUser(userData);
+        // Ensure role defaults to 'admin' for legacy accounts
+        const normalized = {
+            ...userData,
+            role: userData.role || 'admin',
+            admin_email: userData.admin_email || userData.email,
+        };
+        setUser(normalized);
         setIsAuthenticated(true);
-        localStorage.setItem('autosecure_user', JSON.stringify(userData));
+        localStorage.setItem('autosecure_user', JSON.stringify(normalized));
     };
 
     const handleLogout = () => {
         setUser(null);
         setIsAuthenticated(false);
         localStorage.removeItem('autosecure_user');
-        // You can also hit a backend logout endpoint if fully migrating to React API
     };
 
     if (!isAuthenticated) {
         return <Login onLoginSuccess={handleLoginSuccess} />;
     }
 
-    // Pass user and a way to logout to the Dashboard 
-    // Assuming Dashboard can accept these props if we want to show user info
     return <Dashboard user={user} onLogout={handleLogout} />;
 };
 
