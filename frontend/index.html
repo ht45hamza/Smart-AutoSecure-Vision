@@ -2,152 +2,105 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Smart AutoSecure Vision - Dev Workbench</title>
-    <!-- CSS Dependencies -->
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
-    <!-- Proxy to Django Static Files -->
-    <link rel="stylesheet" href="/static/style.css">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smart AutoSecure Vision™</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body {
+      background-color: #0f172a;
+      color: #f8fafc;
+      margin: 0;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
 
-    <style>
-        /* Dev Workbench Styles */
-        body {
-            padding-top: 0px;
-            /* Space for fixed navbar removed */
-            background-color: #0f172a;
-            /* Match app bg */
-        }
+    .live-badge {
+      background: #e74c3c;
+      color: white;
+      padding: 6px 14px;
+      border-radius: 30px;
+      font-size: 0.8rem;
+      font-weight: bold;
+    }
 
-        .dev-navbar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background: #1e293b;
-            border-bottom: 1px solid #334155;
-            padding: 0.5rem 1rem;
-            z-index: 9999;
-            display: flex;
-            align-items: center;
-            gap: 1rem;
-        }
+    .small-cam:hover {
+      transform: scale(1.07);
+      border-color: #3498db !important;
+    }
 
-        .dev-brand {
-            font-weight: bold;
-            color: #3b82f6;
-            margin-right: 1rem;
-        }
+    .log-item {
+      padding: 10px;
+      background: #1e2a3a;
+      border-radius: 12px;
+      margin-bottom: 8px;
+      border-left: 4px solid #3498db;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
 
-        .dev-nav-btn {
-            background: transparent;
-            border: 1px solid #475569;
-            color: #cbd5e1;
-            padding: 0.25rem 0.75rem;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
+    .log-item.suspect {
+      border-left-color: #e74c3c;
+      background: rgba(231, 76, 60, 0.1);
+    }
 
-        .dev-nav-btn:hover,
-        .dev-nav-btn.active {
-            background_color: #3b82f6;
-            border-color: #3b82f6;
-            color: white;
-        }
+    .log-item .avatar {
+      width: 45px;
+      height: 45px;
+      border-radius: 50%;
+      object-fit: cover;
+      border: 2px solid #334155;
+    }
 
-        /* Container Visibility */
-        .component-container {
-            display: none;
-            /* Hidden by default */
-            padding: 20px;
-        }
+    .log-item .content {
+      flex-grow: 1;
+    }
 
-        .component-container.active {
-            display: block;
-        }
+    .log-item .time {
+      font-size: 0.75rem;
+      color: #64748b;
+    }
 
-        /* Layout Simulation */
-        .admin-simulator {
-            display: flex;
-        }
+    /* Emergency Overlay */
+    #emergencyOverlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(220, 38, 38, 0.85);
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      color: white;
+      text-align: center;
+      animation: pulse 1s infinite;
+    }
 
-        .admin-simulator .sidebar-mock {
-            width: 260px;
-            background: #1e293b;
-            border-right: 1px solid #334155;
-            min-height: 100vh;
-            padding: 20px;
-            display: none;
-            /* Only show in admin mode */
-        }
-    </style>
+    @keyframes pulse {
+      0% { opacity: 0.9; }
+      50% { opacity: 1; }
+      100% { opacity: 0.9; }
+    }
+  </style>
 </head>
 
 <body>
+  <div id="dashboard-root"></div>
+  <div id="login-root"></div>
+  <div id="admin-root"></div>
+  <div id="logs-root"></div>
+  <div id="contacts-root"></div>
+  
+  <!-- Main React Entry -->
+  <div id="root"></div>
 
-    <!-- Dev Navigation Bar (Hidden for Production View) -->
-    <!-- 
-    <nav class="dev-navbar">
-        <div class="dev-brand">DEV WORKBENCH</div>
-        <button class="dev-nav-btn active" onclick="showComponent('dashboard')">Dashboard</button>
-        <button class="dev-nav-btn" onclick="showComponent('admin')">Database</button>
-        <button class="dev-nav-btn" onclick="showComponent('logs')">Suspect Logs</button>
-        <button class="dev-nav-btn" onclick="showComponent('contacts')">Contacts</button>
-        <button class="dev-nav-btn" onclick="showComponent('login')">Login/Register</button>
-    </nav> 
-    -->
-
-    <!-- Dashboard Container -->
-    <div id="container-dashboard" class="component-container active">
-        <!-- Dashboard expects full width, no sidebar -->
-        <div id="dashboard-root"></div>
-    </div>
-
-    <!-- Login Container -->
-    <div id="container-login" class="component-container">
-        <div id="login-root"></div>
-    </div>
-
-    <!-- Admin Container -->
-    <div id="container-admin" class="component-container">
-        <!-- Admin expects a sidebar context usually, mocking structure if needed -->
-        <div class="row">
-            <div class="col-12">
-                <div id="admin-root"></div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Logs Container -->
-    <div id="container-logs" class="component-container">
-        <div id="logs-root"></div>
-    </div>
-
-    <!-- Contacts Container -->
-    <div id="container-contacts" class="component-container">
-        <div id="contacts-root"></div>
-    </div>
-
-    <!-- Controller Script -->
-    <script>
-        function showComponent(name) {
-            // Hide all
-            document.querySelectorAll('.component-container').forEach(el => el.classList.remove('active'));
-            document.querySelectorAll('.dev-nav-btn').forEach(el => el.classList.remove('active'));
-
-            // Show selected
-            document.getElementById('container-' + name).classList.add('active');
-
-            // Update button state
-            const btn = Array.from(document.querySelectorAll('.dev-nav-btn')).find(b => b.textContent.toLowerCase().includes(name));
-            if (btn) btn.classList.add('active');
-        }
-    </script>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script type="module" src="/src/main.jsx"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script type="module" src="/src/main.jsx"></script>
 </body>
 
 </html>

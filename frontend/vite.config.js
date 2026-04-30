@@ -5,35 +5,29 @@ import path from 'path'
 // https://vitejs.dev/config/
 export default defineConfig({
     plugins: [react()],
+    // Base must match where Django serves these files
+    base: '/static/dist/',
     build: {
         // Build directly into Django's static files
         outDir: '../static/dist',
         emptyOutDir: true,
         manifest: true,
         rollupOptions: {
-            input: {
-                main: './src/main.jsx',
-            },
-            output: {
-                entryFileNames: `assets/[name].js`,
-                chunkFileNames: `assets/[name].js`,
-                assetFileNames: `assets/[name].[ext]`
-            }
+            // By default Vite uses index.html as entry
+            // This ensures index.html is generated in the dist folder
         }
     },
     server: {
         origin: 'http://localhost:5175',
         port: 5175,
-
         proxy: {
-            '/api': 'http://127.0.0.1:5000',
-            '/admin': 'http://127.0.0.1:5000',
-            '/static': 'http://127.0.0.1:5000',
-            '/cameras': 'http://127.0.0.1:5000',
-            '/video_feed': 'http://127.0.0.1:5000',
-            '/add_camera': 'http://127.0.0.1:5000',
-            '/set_main': 'http://127.0.0.1:5000',
+            '/api': 'http://127.0.0.1:8000',
+            '/admin': 'http://127.0.0.1:8000',
+            '/static': 'http://127.0.0.1:8000',
+            '/cameras': 'http://127.0.0.1:8000',
+            '/video_feed': 'http://127.0.0.1:8000',
+            '/add_camera': 'http://127.0.0.1:8000',
+            '/set_main': 'http://127.0.0.1:8000',
         }
-
     }
 })
